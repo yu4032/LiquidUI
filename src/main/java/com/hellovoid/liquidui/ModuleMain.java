@@ -16,8 +16,7 @@ import com.hellovoid.liquidui.target.SystemUiRuntimeInfoProvider;
 import com.hellovoid.liquidui.target.SystemUiTargetResolver;
 import com.hellovoid.liquidui.target.TargetResolution;
 import com.hellovoid.liquidui.target.TargetResolutionStatus;
-import com.hellovoid.liquidui.xposed.Api101BooleanArgumentHookBackend;
-import com.hellovoid.liquidui.xposed.Api101IntArgumentHookBackend;
+import com.hellovoid.liquidui.xposed.Api101BeforeMethodHookBackend;
 
 import java.util.List;
 
@@ -30,10 +29,6 @@ public final class ModuleMain extends XposedModule {
     private final SystemUiTargetResolver targetResolver = SystemUiTargetResolver.defaults();
     private final SystemUiRuntimeInfoProvider runtimeInfoProvider =
             new SystemUiRuntimeInfoProvider(FrameworkPackageVersionReader.INSTANCE);
-    private final SystemUiHookRegistry hookRegistry = new SystemUiHookRegistry(List.of(
-            new NotificationRedBackgroundHook(
-                    Api101IntArgumentHookBackend.INSTANCE,
-                    Api101BooleanArgumentHookBackend.INSTANCE)));
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
@@ -71,6 +66,9 @@ public final class ModuleMain extends XposedModule {
                 return;
             }
 
+            SystemUiHookRegistry hookRegistry = new SystemUiHookRegistry(List.of(
+                    new NotificationRedBackgroundHook(
+                            new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()))));
             HookRegistryReport report = hookRegistry.installAll(classLoader, resolution.profile());
             Api101Bridge.log(LiquidUiLog.format(
                     BootstrapDiagnosticsPolicy.hookRegistryMessage(

@@ -1,67 +1,44 @@
 # SystemUI Notification Red Background Design
 
-## Purpose
+## Goal
 
-Add the first user-visible LiquidUI SystemUI hook for exact target `systemui-001`: render notification card backgrounds as fully opaque pure red (`#FFFF0000`).
+On exact target `systemui-001`, force the visible background of notification rows to fully opaque pure red `#FFFF0000`, for both HyperOS/MIUI-style and Google/native-style notifications.
 
-## Scope
+## Reverse-engineered architecture
 
-The feature covers the outer background of notification rows rendered through `ExpandableNotificationRow -> ActivatableNotificationView -> NotificationBackgroundView`, including ordinary shade notifications, lock-screen notification rows, heads-up notification rows, grouped child rows, and media notifications when they use the standard notification-row container.
+`NotificationViewWrapper.wrap(...)` proves two content presentation stacks selected around `NotificationSettingsHelper.showMiuiStyle()`. HyperOS uses `MiuiNotification*ViewWrapper` classes while native notifications use the standard `Notification*TemplateViewWrapper` family.
 
-The feature does **not** modify Dynamic Island / live-activity surfaces, notification guts/detail panels, the overall notification shade/panel background, app-provided RemoteViews content backgrounds, or unrelated SystemUI cards.
+Both stacks converge on `ExpandableNotificationRow`. The final outer background pixel authority is `NotificationBackgroundView#onDraw(Canvas)`, which draws the current private `mBackground` drawable directly to the Canvas after bounds/clipping setup.
 
-## Reverse-engineering authority
+The content root is above that background. `NotificationViewWrapper#onReinflated()` and three HyperOS overrides are the exact reinflation declarations in this build. They are therefore the second authority needed to prevent an opaque/colorized content-root background from covering the red row.
 
-Target profile: `systemui-001` (`com.android.systemui`, versionCode `202501210`, versionName `16.03.251211.r`, SDK 36).
+## Chosen implementation
 
-The supplied SystemUI APK shows:
+Install exact highest-priority before-method interceptors for:
 
-- `ExpandableNotificationRow` inherits `ActivatableNotificationView`.
-- `ActivatableNotificationView` owns `mBackgroundNormal: NotificationBackgroundView`.
-- `onFinishInflate()` resolves `R.id.backgroundNormal`, lets the MIUI injector initialize the drawable, then calls `updateBackgroundTint()`.
-- `updateBackgroundTint(boolean)` computes the current color and routes non-animated updates through `setBackgroundTintColor(int)`.
-- `setBackgroundTintColor(int)` stores `mCurrentBackgroundTint` and forwards to `mBackgroundNormal.setTint(int)`.
-- MIUI can replace the row background drawable depending on blur/style state, so the hook must operate at the tint authority rather than one resource name.
+1. `NotificationBackgroundView#onDraw(Canvas)`
+2. `NotificationViewWrapper#onReinflated()`
+3. `MiuiNotificationTemplateViewWrapper#onReinflated()`
+4. `MiuiNotificationBigTextViewWrapper#onReinflated()`
+5. `MiuiNotificationCustomViewWrapper#onReinflated()`
 
-## Chosen behavior
+At `onDraw`, only when the parent is an `ExpandableNotificationRow`, disable view blur/clear MIUI blend state and recolor the current actual `mBackground` drawable to opaque red. Handle `GradientDrawable` and `LayerDrawable` explicitly and use generic drawable tint as the fallback.
 
-Install two exact argument-rewrite interceptors. First, force every invocation of `NotificationBackgroundView#setCustomBackground(int)` to use `R.drawable.notification_material_bg`, preventing HyperOS blur mode from substituting `notification_heads_up_transparent_bg`. Second, force every invocation of `ActivatableNotificationView#setBackgroundTintColor(int)` to receive `0xFFFF0000` instead of the framework-computed tint. Use the libxposed API 101 interceptor chain with rewritten argument arrays so normal SystemUI state bookkeeping, `NotificationBackgroundView#setTint`, roundness, Ripple, clipping, and lifecycle logic continue to execute.
+At every reinflation declaration, only when `mRow` is an `ExpandableNotificationRow`, clear `mView`'s background resource before the vendor code continues.
 
-This two-point hook is required because decompiled `NotificationBackgroundView#setTint(int)` calls `Drawable.setColorFilter(color, PorterDuff.Mode.SRC_ATOP)`, which preserves source drawable transparency and therefore cannot make the transparent blur drawable fully opaque. Do not replace the whole row background with a generic `ColorDrawable`.
+## Why v1/v2 are removed
 
-## Hook boundary
+The previous implementation intercepted `setCustomBackground(int)`, `setBackgroundTintColor(int)`, and `updateBlurBg(..., boolean)`. Those methods describe intermediate state but do not own the final pixels; they are also short enough that ART inlining can bypass a method-entry hook even though registration succeeds.
 
-Create `NotificationRedBackgroundHook` under `hook/systemui/notification/` implementing `SystemUiHook`.
+The final-render design does not depend on those setters or a particular selected drawable resource.
 
-Installation contract:
+## Constraints
 
-1. Resolve `ActivatableNotificationView`, `NotificationBackgroundView`, and `com.android.systemui.R$drawable` with the target process `ClassLoader`.
-2. Resolve exact methods `ActivatableNotificationView#setBackgroundTintColor(int)` and `NotificationBackgroundView#setCustomBackground(int)`.
-3. Resolve exact static field `R.drawable.notification_material_bg`.
-4. Register two highest-priority API101 argument-rewrite interceptors: material-background resource rewrite and opaque-red tint rewrite.
-5. Return `INSTALLED` only after both hook registrations succeed.
-6. Return `UNSUPPORTED` when any exact class/method/resource contract is absent.
-7. Return `FAILED` for access/framework hook-registration failures.
-
-The feature is registered explicitly in `ModuleMain`'s `SystemUiHookRegistry`. No fuzzy class-name fallback is allowed.
-
-## Safety and failure semantics
-
-The exact build gate remains authoritative. The hook is never attempted on unsupported SystemUI builds. The interceptor changes only the single integer argument and otherwise proceeds normally. It must not swallow exceptions from SystemUI's original method.
-
-## Testing
-
-Add SDK-independent contract tests for:
-
-- red color constant is exactly `0xFFFF0000`;
-- argument rewrite always produces opaque red regardless of original tint;
-- hook ID is stable and notification-specific;
-- `ModuleMain` registers the notification hook instead of an empty registry;
-- target private class resolution uses the supplied target `ClassLoader`;
-- no resource-name or broad package scan fallback is introduced.
-
-Then run the full contract suite and GitHub Actions `testDebugUnitTest assembleDebug`. A successful build is required before considering the change ready for device testing.
-
-## Runtime authority correction
-
-Device logs from the first build proved that successful installation of the drawable/tint hooks was insufficient because `ExpandableNotificationRowInjector#updateBlurBg(int,int,boolean)` subsequently enabled MIUI view blur and blend colors directly on `NotificationBackgroundView`. The final design therefore adds an exact boolean-argument hook on this method and forces `enableBlur=false`. This deliberately uses SystemUI's own no-blur branch to call `setMiViewBlurModeCompat(0)`, clear blend colors, and select the solid drawable before the existing material-background and red-tint hooks apply.
+- exact build gate only (`systemui-001`)
+- target process ClassLoader for private/vendor classes
+- no fuzzy fallback or resource-name scan
+- no fixed delays
+- no whole-row View replacement
+- transactional hook installation
+- diagnostics may log the first runtime hit of each exact method when enabled
+- Dynamic Island, guts/detail UI, and full NotificationShade panel background are out of scope

@@ -11,7 +11,6 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.IntUnaryOperator;
 
 import static org.junit.Assert.*;
 
@@ -19,89 +18,109 @@ public class NotificationRedBackgroundHookContractTest {
     private static final String HOOK =
             "com.hellovoid.liquidui.hook.systemui.notification.NotificationRedBackgroundHook";
     private static final String BACKEND =
-            "com.hellovoid.liquidui.hook.IntArgumentHookBackend";
-    private static final String BOOLEAN_BACKEND =
-            "com.hellovoid.liquidui.hook.BooleanArgumentHookBackend";
-    private static final String ACTIVATABLE =
-            "com.android.systemui.statusbar.notification.row.ActivatableNotificationView";
+            "com.hellovoid.liquidui.hook.BeforeMethodHookBackend";
     private static final String BACKGROUND =
             "com.android.systemui.statusbar.notification.row.NotificationBackgroundView";
-    private static final String ROW_INJECTOR =
-            "com.android.systemui.statusbar.notification.row.ExpandableNotificationRowInjector";
-    private static final String R_DRAWABLE = "com.android.systemui.R$drawable";
+    private static final String ROW =
+            "com.android.systemui.statusbar.notification.row.ExpandableNotificationRow";
+    private static final String WRAPPER =
+            "com.android.systemui.statusbar.notification.row.wrapper.NotificationViewWrapper";
+    private static final String MIUI_TEMPLATE_WRAPPER =
+            "com.android.systemui.statusbar.notification.row.wrapper.MiuiNotificationTemplateViewWrapper";
+    private static final String MIUI_BIG_TEXT_WRAPPER =
+            "com.android.systemui.statusbar.notification.row.wrapper.MiuiNotificationBigTextViewWrapper";
+    private static final String MIUI_CUSTOM_WRAPPER =
+            "com.android.systemui.statusbar.notification.row.wrapper.MiuiNotificationCustomViewWrapper";
+    private static final String MI_BLUR = "com.miui.systemui.util.MiBlurCompat";
+    private static final String VIEW = "android.view.View";
+    private static final String CANVAS = "android.graphics.Canvas";
+    private static final String DRAWABLE = "android.graphics.drawable.Drawable";
+    private static final String GRADIENT = "android.graphics.drawable.GradientDrawable";
+    private static final String LAYER = "android.graphics.drawable.LayerDrawable";
 
     @Test
-    public void installsExactMaterialAndTintRewritersThroughTargetClassLoader() throws Exception {
+    public void installsFinalDrawAndContentRootAuthorities() throws Throwable {
         RecordingBackend backend = new RecordingBackend(-1);
-        RecordingBooleanBackend booleanBackend = new RecordingBooleanBackend(-1);
-        Object hook = newHook(backend, booleanBackend);
-        TargetLoader loader = new TargetLoader(true, true, true, true);
+        Object hook = newHook(backend);
+        TargetLoader loader = new TargetLoader();
 
         HookInstallResult result = install(hook, loader, SystemUi001Profile.INSTANCE);
 
         assertEquals(HookInstallStatus.INSTALLED, result.status());
         assertEquals("notification.red-background", id(hook));
-        assertEquals(2L, backend.registrations.size());
-        assertEquals(1L, booleanBackend.registrations.size());
-        assertTrue(loader.requested.contains(ACTIVATABLE));
+        assertEquals(5L, backend.registrations.size());
         assertTrue(loader.requested.contains(BACKGROUND));
-        assertTrue(loader.requested.contains(ROW_INJECTOR));
-        assertTrue(loader.requested.contains(R_DRAWABLE));
+        assertTrue(loader.requested.contains(ROW));
+        assertTrue(loader.requested.contains(WRAPPER));
+        assertTrue(loader.requested.contains(MIUI_TEMPLATE_WRAPPER));
+        assertTrue(loader.requested.contains(MIUI_BIG_TEXT_WRAPPER));
+        assertTrue(loader.requested.contains(MIUI_CUSTOM_WRAPPER));
+        assertTrue(loader.requested.contains(MI_BLUR));
+        assertTrue(loader.requested.contains(VIEW));
+        assertTrue(loader.requested.contains(CANVAS));
+        assertTrue(loader.requested.contains(DRAWABLE));
+        assertTrue(loader.requested.contains(GRADIENT));
+        assertTrue(loader.requested.contains(LAYER));
 
-        BooleanRegistration blur = booleanBackend.byMethod("updateBlurBg");
-        assertEquals(2L, blur.argumentIndex);
-        assertEquals((long) Integer.MAX_VALUE, blur.priority);
-        assertFalse(blur.rewriter.rewrite(true));
-        assertFalse(blur.rewriter.rewrite(false));
+        Registration draw = backend.byMethod("onDraw");
+        assertEquals((long) Integer.MAX_VALUE, draw.priority);
+        FakeExpandableNotificationRow row = new FakeExpandableNotificationRow();
+        FakeGradientDrawable leaf = new FakeGradientDrawable();
+        FakeLayerDrawable layer = new FakeLayerDrawable(leaf);
+        FakeNotificationBackgroundView background = new FakeNotificationBackgroundView(row, layer);
+        draw.before.before(background, new Object[]{new FakeCanvas()});
+        assertEquals(0L, FakeMiBlurCompat.lastMode);
+        assertTrue(FakeMiBlurCompat.cleared);
+        assertEquals(255L, layer.alpha);
+        assertEquals(255L, leaf.alpha);
+        assertEquals((long) 0xFFFF0000, leaf.color);
 
-        Registration material = backend.byMethod("setCustomBackground");
-        assertEquals(0L, material.argumentIndex);
-        assertEquals((long) Integer.MAX_VALUE, material.priority);
-        assertEquals((long) FakeRDrawable.notification_material_bg,
-                material.rewriter.applyAsInt(123));
+        assertEquals(4L, backend.countByMethod("onReinflated"));
+        assertTrue(backend.hasRegistration(FakeNotificationViewWrapper.class, "onReinflated"));
+        assertTrue(backend.hasRegistration(FakeMiuiNotificationTemplateViewWrapper.class, "onReinflated"));
+        assertTrue(backend.hasRegistration(FakeMiuiNotificationBigTextViewWrapper.class, "onReinflated"));
+        assertTrue(backend.hasRegistration(FakeMiuiNotificationCustomViewWrapper.class, "onReinflated"));
 
-        Registration tint = backend.byMethod("setBackgroundTintColor");
-        assertEquals(0L, tint.argumentIndex);
-        assertEquals((long) Integer.MAX_VALUE, tint.priority);
-        assertEquals((long) 0xFFFF0000, tint.rewriter.applyAsInt(0x44010203));
+        FakeView content = new FakeView();
+        content.backgroundResource = 123;
+        FakeNotificationViewWrapper wrapper = new FakeNotificationViewWrapper(content, row);
+        backend.byDeclaringClassAndMethod(FakeNotificationViewWrapper.class, "onReinflated")
+                .before.before(wrapper, new Object[0]);
+        assertEquals(0L, content.backgroundResource);
     }
 
     @Test
-    public void missingExactTargetContractIsUnsupportedWithoutRegistration() throws Exception {
+    public void backgroundDrawOutsideNotificationRowIsUntouched() throws Throwable {
         RecordingBackend backend = new RecordingBackend(-1);
-        RecordingBooleanBackend booleanBackend = new RecordingBooleanBackend(-1);
-        Object hook = newHook(backend, booleanBackend);
-        TargetLoader loader = new TargetLoader(true, false, true, true);
+        Object hook = newHook(backend);
+        install(hook, new TargetLoader(), SystemUi001Profile.INSTANCE);
 
-        HookInstallResult result = install(hook, loader, SystemUi001Profile.INSTANCE);
+        FakeGradientDrawable drawable = new FakeGradientDrawable();
+        drawable.color = 0x11223344;
+        FakeNotificationBackgroundView background =
+                new FakeNotificationBackgroundView(new Object(), drawable);
+        backend.byMethod("onDraw").before.before(background, new Object[]{new FakeCanvas()});
 
-        assertEquals(HookInstallStatus.UNSUPPORTED, result.status());
-        assertEquals(0L, backend.registrations.size());
-        assertEquals(0L, booleanBackend.registrations.size());
+        assertEquals((long) 0x11223344, drawable.color);
     }
 
     @Test
-    public void laterRegistrationFailureRollsBackAllEarlierRegistrations() throws Exception {
+    public void laterRegistrationFailureRollsBackEarlierRegistration() throws Exception {
         RecordingBackend backend = new RecordingBackend(1);
-        RecordingBooleanBackend booleanBackend = new RecordingBooleanBackend(-1);
-        Object hook = newHook(backend, booleanBackend);
+        Object hook = newHook(backend);
 
-        HookInstallResult result = install(
-                hook, new TargetLoader(true, true, true, true), SystemUi001Profile.INSTANCE);
+        HookInstallResult result = install(hook, new TargetLoader(), SystemUi001Profile.INSTANCE);
 
         assertEquals(HookInstallStatus.FAILED, result.status());
-        assertEquals(1L, booleanBackend.registrations.size());
         assertEquals(1L, backend.registrations.size());
-        assertTrue(booleanBackend.registrations.get(0).unhooked);
         assertTrue(backend.registrations.get(0).unhooked);
     }
 
     @Test
-    public void unsupportedProfileIsRejectedBeforeTargetLookup() throws Exception {
+    public void unsupportedProfileIsRejectedBeforeLookup() throws Exception {
         RecordingBackend backend = new RecordingBackend(-1);
-        RecordingBooleanBackend booleanBackend = new RecordingBooleanBackend(-1);
-        Object hook = newHook(backend, booleanBackend);
-        TargetLoader loader = new TargetLoader(true, true, true, true);
+        Object hook = newHook(backend);
+        TargetLoader loader = new TargetLoader();
         SystemUiTargetProfile other = new SystemUiTargetProfile() {
             @Override public String id() { return "systemui-other"; }
             @Override public String packageName() { return "com.android.systemui"; }
@@ -118,20 +137,14 @@ public class NotificationRedBackgroundHookContractTest {
         assertEquals(HookInstallStatus.UNSUPPORTED, result.status());
         assertEquals(0L, loader.requested.size());
         assertEquals(0L, backend.registrations.size());
-        assertEquals(0L, booleanBackend.registrations.size());
     }
 
-    private static Object newHook(
-            RecordingBackend backend, RecordingBooleanBackend booleanBackend) throws Exception {
+    private static Object newHook(RecordingBackend backend) throws Exception {
         Class<?> backendType = Class.forName(BACKEND);
-        Class<?> booleanBackendType = Class.forName(BOOLEAN_BACKEND);
         Object proxy = Proxy.newProxyInstance(
                 backendType.getClassLoader(), new Class<?>[]{backendType}, backend);
-        Object booleanProxy = Proxy.newProxyInstance(
-                booleanBackendType.getClassLoader(), new Class<?>[]{booleanBackendType}, booleanBackend);
         Class<?> hookType = Class.forName(HOOK);
-        return hookType.getConstructor(backendType, booleanBackendType)
-                .newInstance(proxy, booleanProxy);
+        return hookType.getConstructor(backendType).newInstance(proxy);
     }
 
     private static HookInstallResult install(
@@ -151,92 +164,159 @@ public class NotificationRedBackgroundHookContractTest {
         return (String) hook.getClass().getMethod("id").invoke(hook);
     }
 
-    public static final class FakeActivatableNotificationView {
-        public void setBackgroundTintColor(int tint) {}
+    public static class FakeView {
+        Object parent;
+        int backgroundResource = -1;
+        public Object getParent() { return parent; }
+        public void setBackgroundResource(int value) { backgroundResource = value; }
     }
 
-    public static final class FakeNotificationBackgroundView {
-        public void setCustomBackground(int resourceId) {}
+    public static final class FakeCanvas {}
+
+    public static class FakeDrawable {
+        int alpha;
+        int tint;
+        public void setAlpha(int value) { alpha = value; }
+        public void setTint(int value) { tint = value; }
     }
 
-    public static final class FakeExpandableNotificationRowInjector {
-        public void updateBlurBg(int blurBackground, int solidBackground, boolean enableBlur) {}
+    public static final class FakeGradientDrawable extends FakeDrawable {
+        int color;
+        public void setColor(int value) { color = value; }
     }
 
-    public static final class FakeRDrawable {
-        public static final int notification_material_bg = 0x7f080123;
+    public static final class FakeLayerDrawable extends FakeDrawable {
+        final FakeDrawable[] layers;
+        FakeLayerDrawable(FakeDrawable... layers) { this.layers = layers; }
+        public int getNumberOfLayers() { return layers.length; }
+        public FakeDrawable getDrawable(int index) { return layers[index]; }
+    }
+
+    public static final class FakeExpandableNotificationRow extends FakeView {}
+
+    public static final class FakeNotificationBackgroundView extends FakeView {
+        public FakeDrawable mBackground;
+        FakeNotificationBackgroundView(Object parent, FakeDrawable background) {
+            this.parent = parent;
+            this.mBackground = background;
+        }
+        protected void onDraw(FakeCanvas canvas) {}
+    }
+
+    public static class FakeNotificationViewWrapper {
+        public final FakeView mView;
+        public final FakeExpandableNotificationRow mRow;
+        FakeNotificationViewWrapper(FakeView view, FakeExpandableNotificationRow row) {
+            this.mView = view;
+            this.mRow = row;
+        }
+        public void onReinflated() {}
+    }
+
+    public static final class FakeMiuiNotificationTemplateViewWrapper extends FakeNotificationViewWrapper {
+        FakeMiuiNotificationTemplateViewWrapper(FakeView view, FakeExpandableNotificationRow row) { super(view, row); }
+        @Override public void onReinflated() {}
+    }
+
+    public static final class FakeMiuiNotificationBigTextViewWrapper extends FakeNotificationViewWrapper {
+        FakeMiuiNotificationBigTextViewWrapper(FakeView view, FakeExpandableNotificationRow row) { super(view, row); }
+        @Override public void onReinflated() {}
+    }
+
+    public static final class FakeMiuiNotificationCustomViewWrapper extends FakeNotificationViewWrapper {
+        FakeMiuiNotificationCustomViewWrapper(FakeView view, FakeExpandableNotificationRow row) { super(view, row); }
+        @Override public void onReinflated() {}
+    }
+
+    public static final class FakeMiBlurCompat {
+        static int lastMode = -1;
+        static boolean cleared;
+        public static void setMiViewBlurModeCompat(int mode, FakeView view) { lastMode = mode; }
+        public static void clearMiBackgroundBlendColorCompat(FakeView view) { cleared = true; }
     }
 
     private static final class TargetLoader extends ClassLoader {
-        private final boolean activatable;
-        private final boolean background;
-        private final boolean rowInjector;
-        private final boolean drawable;
-        private final List<String> requested = new ArrayList<>();
-
-        TargetLoader(boolean activatable, boolean background, boolean rowInjector, boolean drawable) {
-            super(NotificationRedBackgroundHookContractTest.class.getClassLoader());
-            this.activatable = activatable;
-            this.background = background;
-            this.rowInjector = rowInjector;
-            this.drawable = drawable;
-        }
+        final List<String> requested = new ArrayList<>();
+        TargetLoader() { super(NotificationRedBackgroundHookContractTest.class.getClassLoader()); }
 
         @Override
         protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
             requested.add(name);
-            if (ACTIVATABLE.equals(name)) {
-                if (!activatable) throw new ClassNotFoundException(name);
-                return FakeActivatableNotificationView.class;
-            }
-            if (BACKGROUND.equals(name)) {
-                if (!background) throw new ClassNotFoundException(name);
-                return FakeNotificationBackgroundView.class;
-            }
-            if (ROW_INJECTOR.equals(name)) {
-                if (!rowInjector) throw new ClassNotFoundException(name);
-                return FakeExpandableNotificationRowInjector.class;
-            }
-            if (R_DRAWABLE.equals(name)) {
-                if (!drawable) throw new ClassNotFoundException(name);
-                return FakeRDrawable.class;
-            }
+            if (BACKGROUND.equals(name)) return FakeNotificationBackgroundView.class;
+            if (ROW.equals(name)) return FakeExpandableNotificationRow.class;
+            if (WRAPPER.equals(name)) return FakeNotificationViewWrapper.class;
+            if (MIUI_TEMPLATE_WRAPPER.equals(name)) return FakeMiuiNotificationTemplateViewWrapper.class;
+            if (MIUI_BIG_TEXT_WRAPPER.equals(name)) return FakeMiuiNotificationBigTextViewWrapper.class;
+            if (MIUI_CUSTOM_WRAPPER.equals(name)) return FakeMiuiNotificationCustomViewWrapper.class;
+            if (MI_BLUR.equals(name)) return FakeMiBlurCompat.class;
+            if (VIEW.equals(name)) return FakeView.class;
+            if (CANVAS.equals(name)) return FakeCanvas.class;
+            if (DRAWABLE.equals(name)) return FakeDrawable.class;
+            if (GRADIENT.equals(name)) return FakeGradientDrawable.class;
+            if (LAYER.equals(name)) return FakeLayerDrawable.class;
             return super.loadClass(name, resolve);
         }
     }
 
     private static final class Registration {
         final Method method;
-        final int argumentIndex;
         final int priority;
-        final IntUnaryOperator rewriter;
+        final Before before;
         boolean unhooked;
-
-        Registration(Method method, int argumentIndex, int priority, IntUnaryOperator rewriter) {
+        Registration(Method method, int priority, Before before) {
             this.method = method;
-            this.argumentIndex = argumentIndex;
             this.priority = priority;
-            this.rewriter = rewriter;
+            this.before = before;
         }
+    }
+
+    @FunctionalInterface
+    private interface Before {
+        void before(Object thisObject, Object[] args) throws Throwable;
     }
 
     private static final class RecordingBackend implements java.lang.reflect.InvocationHandler {
         final List<Registration> registrations = new ArrayList<>();
         final int failAtRegistrationIndex;
+        RecordingBackend(int failAtRegistrationIndex) { this.failAtRegistrationIndex = failAtRegistrationIndex; }
 
-        RecordingBackend(int failAtRegistrationIndex) {
-            this.failAtRegistrationIndex = failAtRegistrationIndex;
+        Registration byMethod(String methodName) {
+            for (Registration registration : registrations) {
+                if (registration.method.getName().equals(methodName)) return registration;
+            }
+            throw new AssertionError("missing registration for " + methodName);
+        }
+
+        Registration byDeclaringClassAndMethod(Class<?> declaringClass, String methodName) {
+            for (Registration registration : registrations) {
+                if (registration.method.getDeclaringClass() == declaringClass
+                        && registration.method.getName().equals(methodName)) {
+                    return registration;
+                }
+            }
+            throw new AssertionError("missing registration for "
+                    + declaringClass.getName() + "#" + methodName);
+        }
+
+        long countByMethod(String methodName) {
+            return registrations.stream()
+                    .filter(registration -> registration.method.getName().equals(methodName))
+                    .count();
+        }
+
+        boolean hasRegistration(Class<?> declaringClass, String methodName) {
+            return registrations.stream().anyMatch(registration ->
+                    registration.method.getDeclaringClass() == declaringClass
+                            && registration.method.getName().equals(methodName));
         }
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
             if (method.getDeclaringClass() == Object.class) {
-                switch (method.getName()) {
-                    case "toString": return "RecordingBackend";
-                    case "hashCode": return System.identityHashCode(proxy);
-                    case "equals": return proxy == args[0];
-                    default: return null;
-                }
+                if ("toString".equals(method.getName())) return "RecordingBackend";
+                if ("hashCode".equals(method.getName())) return System.identityHashCode(proxy);
+                if ("equals".equals(method.getName())) return proxy == args[0];
+                return null;
             }
             if (!"intercept".equals(method.getName())) {
                 throw new AssertionError("unexpected backend method " + method);
@@ -244,9 +324,18 @@ public class NotificationRedBackgroundHookContractTest {
             if (registrations.size() == failAtRegistrationIndex) {
                 throw new IllegalStateException("synthetic registration failure");
             }
-            Registration registration = new Registration(
-                    (Method) args[0], (Integer) args[1], (Integer) args[2],
-                    (IntUnaryOperator) args[3]);
+            Object callback = args[2];
+            Method beforeMethod = callback.getClass().getInterfaces()[0]
+                    .getMethod("before", Object.class, Object[].class);
+            beforeMethod.setAccessible(true);
+            Before before = (thisObject, callArgs) -> {
+                try {
+                    beforeMethod.invoke(callback, thisObject, callArgs);
+                } catch (InvocationTargetException error) {
+                    throw error.getCause();
+                }
+            };
+            Registration registration = new Registration((Method) args[0], (Integer) args[1], before);
             registrations.add(registration);
             Class<?> registrationType = method.getReturnType();
             return Proxy.newProxyInstance(
@@ -261,98 +350,8 @@ public class NotificationRedBackgroundHookContractTest {
                             if ("hashCode".equals(handleMethod.getName())) return System.identityHashCode(handle);
                             if ("equals".equals(handleMethod.getName())) return handle == handleArgs[0];
                         }
-                        throw new AssertionError("unexpected registration method " + handleMethod);
+                        return null;
                     });
         }
-
-        Registration byMethod(String methodName) {
-            for (Registration registration : registrations) {
-                if (methodName.equals(registration.method.getName())) return registration;
-            }
-            throw new AssertionError("missing method registration " + methodName);
-        }
     }
-
-    @FunctionalInterface
-    private interface BooleanRewriterView {
-        boolean rewrite(boolean value);
-    }
-
-    private static final class BooleanRegistration {
-        final Method method;
-        final int argumentIndex;
-        final int priority;
-        final BooleanRewriterView rewriter;
-        boolean unhooked;
-
-        BooleanRegistration(Method method, int argumentIndex, int priority, BooleanRewriterView rewriter) {
-            this.method = method;
-            this.argumentIndex = argumentIndex;
-            this.priority = priority;
-            this.rewriter = rewriter;
-        }
-    }
-
-    private static final class RecordingBooleanBackend implements java.lang.reflect.InvocationHandler {
-        final List<BooleanRegistration> registrations = new ArrayList<>();
-        final int failAtRegistrationIndex;
-
-        RecordingBooleanBackend(int failAtRegistrationIndex) {
-            this.failAtRegistrationIndex = failAtRegistrationIndex;
-        }
-
-        @Override
-        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-            if (method.getDeclaringClass() == Object.class) {
-                switch (method.getName()) {
-                    case "toString": return "RecordingBooleanBackend";
-                    case "hashCode": return System.identityHashCode(proxy);
-                    case "equals": return proxy == args[0];
-                    default: return null;
-                }
-            }
-            if (!"intercept".equals(method.getName())) {
-                throw new AssertionError("unexpected boolean backend method " + method);
-            }
-            if (registrations.size() == failAtRegistrationIndex) {
-                throw new IllegalStateException("synthetic boolean registration failure");
-            }
-            Object rewriteProxy = args[3];
-            Method rewriteMethod = rewriteProxy.getClass().getInterfaces()[0]
-                    .getMethod("applyAsBoolean", boolean.class);
-            BooleanRegistration registration = new BooleanRegistration(
-                    (Method) args[0], (Integer) args[1], (Integer) args[2],
-                    value -> {
-                        try {
-                            return (Boolean) rewriteMethod.invoke(rewriteProxy, value);
-                        } catch (ReflectiveOperationException error) {
-                            throw new RuntimeException(error);
-                        }
-                    });
-            registrations.add(registration);
-            Class<?> registrationType = method.getReturnType();
-            return Proxy.newProxyInstance(
-                    registrationType.getClassLoader(), new Class<?>[]{registrationType},
-                    (handle, handleMethod, handleArgs) -> {
-                        if ("unhook".equals(handleMethod.getName())) {
-                            registration.unhooked = true;
-                            return null;
-                        }
-                        if (handleMethod.getDeclaringClass() == Object.class) {
-                            if ("toString".equals(handleMethod.getName())) return "BooleanRegistration";
-                            if ("hashCode".equals(handleMethod.getName())) return System.identityHashCode(handle);
-                            if ("equals".equals(handleMethod.getName())) return handle == handleArgs[0];
-                        }
-                        throw new AssertionError("unexpected registration method " + handleMethod);
-                    });
-        }
-
-        BooleanRegistration byMethod(String methodName) {
-            for (BooleanRegistration registration : registrations) {
-                if (methodName.equals(registration.method.getName())) return registration;
-            }
-            throw new AssertionError("missing boolean method registration " + methodName);
-        }
-    }
-
 }
