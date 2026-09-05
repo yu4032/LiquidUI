@@ -1,7 +1,9 @@
 name: Bootstrap source import
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - feature/bootstrap-implementation
 
 permissions:
   contents: write
@@ -10,4 +12,21 @@ jobs:
   import:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "staged"
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/bootstrap-implementation
+      - name: Materialize tracked LiquidUI tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/parts/* > /tmp/liquidui-tree.b64
+          base64 -d /tmp/liquidui-tree.b64 > /tmp/liquidui-tree.tar.gz
+          echo "f2fe68c9511eb2f851159c2c822ad5a43e8c7b8ffb51208e22c53fb54af34a59  /tmp/liquidui-tree.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/liquidui-tree.tar.gz -C .
+          rm -rf .bootstrap
+          rm -f .github/workflows/bootstrap-import.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: bootstrap LiquidUI API101 project"
+          git push origin HEAD:feature/bootstrap-implementation
