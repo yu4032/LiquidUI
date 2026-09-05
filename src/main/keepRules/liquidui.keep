@@ -1,0 +1,6 @@
+# libxposed loads this class by the literal name in META-INF/xposed/java_init.list.
+-keep class com.hellovoid.liquidui.ModuleMain { *; }
+
+# Exact target and hook contracts are small stable diagnostic boundaries.
+-keep class com.hellovoid.liquidui.target.** { *; }
+-keep class com.hellovoid.liquidui.hook.** { *; }
