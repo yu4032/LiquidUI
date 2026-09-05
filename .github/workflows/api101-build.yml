@@ -1,0 +1,54 @@
+name: LiquidUI API101 build
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: liquidui-api101-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Run SDK-independent contracts
+        run: ./scripts/test-contracts.sh
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          # PR caches are isolated to refs/pull/*/merge, so let repeated pushes
+          # to the same PR reuse branch-specific Gradle/build-cache state.
+          cache-read-only: ${{ github.event_name != 'pull_request' && github.ref != 'refs/heads/main' }}
+          # Match LiquidDock's CI cache policy: avoid the extra cleanup Gradle
+          # invocation after successful builds.
+          cache-cleanup: never
+          # LiquidUI does not commit a Gradle wrapper yet; pin the same Gradle
+          # version used by LiquidDock's wrapper so CI remains deterministic.
+          gradle-version: '9.6.1'
+      - run: gradle testDebugUnitTest assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LiquidUI-api101-debug
+          path: build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LiquidUI-build-source
+          path: |
+            src/main/java/com/hellovoid/liquidui
+            src/main/kotlin/com/hellovoid/liquidui
+            src/test/java/com/hellovoid/liquidui
+          if-no-files-found: error
+          retention-days: 3
