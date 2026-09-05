@@ -61,3 +61,7 @@ Add SDK-independent contract tests for:
 - no resource-name or broad package scan fallback is introduced.
 
 Then run the full contract suite and GitHub Actions `testDebugUnitTest assembleDebug`. A successful build is required before considering the change ready for device testing.
+
+## Runtime authority correction
+
+Device logs from the first build proved that successful installation of the drawable/tint hooks was insufficient because `ExpandableNotificationRowInjector#updateBlurBg(int,int,boolean)` subsequently enabled MIUI view blur and blend colors directly on `NotificationBackgroundView`. The final design therefore adds an exact boolean-argument hook on this method and forces `enableBlur=false`. This deliberately uses SystemUI's own no-blur branch to call `setMiViewBlurModeCompat(0)`, clear blend colors, and select the solid drawable before the existing material-background and red-tint hooks apply.

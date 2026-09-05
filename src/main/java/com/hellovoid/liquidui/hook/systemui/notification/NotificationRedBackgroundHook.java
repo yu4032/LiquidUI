@@ -1,5 +1,6 @@
 package com.hellovoid.liquidui.hook.systemui.notification;
 
+import com.hellovoid.liquidui.hook.BooleanArgumentHookBackend;
 import com.hellovoid.liquidui.hook.HookInstallResult;
 import com.hellovoid.liquidui.hook.IntArgumentHookBackend;
 import com.hellovoid.liquidui.hook.SystemUiHook;
@@ -9,6 +10,8 @@ import com.hellovoid.liquidui.target.SystemUiTargetProfile;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /** Forces standard SystemUI notification row backgrounds to opaque red. */
@@ -20,13 +23,19 @@ public final class NotificationRedBackgroundHook implements SystemUiHook {
             "com.android.systemui.statusbar.notification.row.ActivatableNotificationView";
     private static final String NOTIFICATION_BACKGROUND_VIEW =
             "com.android.systemui.statusbar.notification.row.NotificationBackgroundView";
+    private static final String EXPANDABLE_NOTIFICATION_ROW_INJECTOR =
+            "com.android.systemui.statusbar.notification.row.ExpandableNotificationRowInjector";
     private static final String R_DRAWABLE = "com.android.systemui.R$drawable";
     private static final String MATERIAL_BACKGROUND = "notification_material_bg";
 
-    private final IntArgumentHookBackend backend;
+    private final IntArgumentHookBackend intBackend;
+    private final BooleanArgumentHookBackend booleanBackend;
 
-    public NotificationRedBackgroundHook(IntArgumentHookBackend backend) {
-        this.backend = Objects.requireNonNull(backend, "backend");
+    public NotificationRedBackgroundHook(
+            IntArgumentHookBackend intBackend,
+            BooleanArgumentHookBackend booleanBackend) {
+        this.intBackend = Objects.requireNonNull(intBackend, "intBackend");
+        this.booleanBackend = Objects.requireNonNull(booleanBackend, "booleanBackend");
     }
 
     @Override
@@ -43,16 +52,22 @@ public final class NotificationRedBackgroundHook implements SystemUiHook {
                     HOOK_ID, "profile is not " + TARGET_PROFILE + ": " + profile.id());
         }
 
+        final Method updateBlurBg;
         final Method setCustomBackground;
         final Method setBackgroundTintColor;
         final int materialBackgroundId;
         try {
+            Class<?> rowInjector = TargetClassResolver.require(
+                    classLoader, EXPANDABLE_NOTIFICATION_ROW_INJECTOR);
             Class<?> backgroundView = TargetClassResolver.require(
                     classLoader, NOTIFICATION_BACKGROUND_VIEW);
             Class<?> activatableView = TargetClassResolver.require(
                     classLoader, ACTIVATABLE_NOTIFICATION_VIEW);
             Class<?> rDrawable = TargetClassResolver.require(classLoader, R_DRAWABLE);
 
+            updateBlurBg = rowInjector.getDeclaredMethod(
+                    "updateBlurBg", int.class, int.class, boolean.class);
+            updateBlurBg.setAccessible(true);
             setCustomBackground = backgroundView.getDeclaredMethod(
                     "setCustomBackground", int.class);
             setCustomBackground.setAccessible(true);
@@ -74,28 +89,42 @@ public final class NotificationRedBackgroundHook implements SystemUiHook {
             return HookInstallResult.failed(HOOK_ID, "notification contract resolution failed", error);
         }
 
-        IntArgumentHookBackend.Registration materialRegistration = null;
+        List<Runnable> rollbacks = new ArrayList<>(3);
         try {
-            materialRegistration = backend.intercept(
+            BooleanArgumentHookBackend.Registration blurRegistration = booleanBackend.intercept(
+                    updateBlurBg,
+                    2,
+                    BooleanArgumentHookBackend.PRIORITY_HIGHEST,
+                    ignored -> false);
+            rollbacks.add(blurRegistration::unhook);
+
+            IntArgumentHookBackend.Registration materialRegistration = intBackend.intercept(
                     setCustomBackground,
                     0,
                     IntArgumentHookBackend.PRIORITY_HIGHEST,
                     ignored -> materialBackgroundId);
-            backend.intercept(
+            rollbacks.add(materialRegistration::unhook);
+
+            IntArgumentHookBackend.Registration tintRegistration = intBackend.intercept(
                     setBackgroundTintColor,
                     0,
                     IntArgumentHookBackend.PRIORITY_HIGHEST,
                     NotificationRedBackgroundPolicy::rewriteTint);
+            rollbacks.add(tintRegistration::unhook);
             return HookInstallResult.installed(HOOK_ID);
         } catch (Throwable error) {
-            if (materialRegistration != null) {
-                try {
-                    materialRegistration.unhook();
-                } catch (Throwable rollbackError) {
-                    error.addSuppressed(rollbackError);
-                }
-            }
+            rollbackAll(rollbacks, error);
             return HookInstallResult.failed(HOOK_ID, "notification hook registration failed", error);
+        }
+    }
+
+    private static void rollbackAll(List<Runnable> rollbacks, Throwable original) {
+        for (int index = rollbacks.size() - 1; index >= 0; index--) {
+            try {
+                rollbacks.get(index).run();
+            } catch (Throwable rollbackError) {
+                original.addSuppressed(rollbackError);
+            }
         }
     }
 }

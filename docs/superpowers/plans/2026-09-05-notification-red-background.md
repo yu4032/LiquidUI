@@ -99,3 +99,12 @@ public final class NotificationRedBackgroundPolicy {
 - [ ] **Step 2: Require GitHub Actions `testDebugUnitTest assembleDebug` to succeed.**
 - [ ] **Step 3: Confirm `LiquidUI-api101-debug` artifact exists.**
 - [ ] **Step 4: Review PR changed-file list to confirm no APK/DEX/JADX output or temporary reverse-engineering payload is committed.**
+
+## Runtime correction task
+
+- [x] Reproduce the first-build failure from device logs: hook installation succeeds while `ExpandableNotificationRowInjector: normalNotificationBlur` enables `NotificationBackgroundView` blur mode 1.
+- [x] Target-decompile `ExpandableNotificationRowInjector#updateBackground$1()` / `#updateBlurBg(int,int,boolean)` and `NotificationUtil.applyElementViewBlend(...)`.
+- [x] Add a pure `BooleanArgumentHookBackend` and API101 adapter under TDD.
+- [x] Force `updateBlurBg` argument 2 to `false` at highest priority so SystemUI executes its own blur-clear branch.
+- [x] Make all three registrations transactional and verify rollback on a later registration failure.
+- [ ] Run GitHub Android CI and device-test the corrected build.

@@ -16,6 +16,7 @@ import com.hellovoid.liquidui.target.SystemUiRuntimeInfoProvider;
 import com.hellovoid.liquidui.target.SystemUiTargetResolver;
 import com.hellovoid.liquidui.target.TargetResolution;
 import com.hellovoid.liquidui.target.TargetResolutionStatus;
+import com.hellovoid.liquidui.xposed.Api101BooleanArgumentHookBackend;
 import com.hellovoid.liquidui.xposed.Api101IntArgumentHookBackend;
 
 import java.util.List;
@@ -30,7 +31,9 @@ public final class ModuleMain extends XposedModule {
     private final SystemUiRuntimeInfoProvider runtimeInfoProvider =
             new SystemUiRuntimeInfoProvider(FrameworkPackageVersionReader.INSTANCE);
     private final SystemUiHookRegistry hookRegistry = new SystemUiHookRegistry(List.of(
-            new NotificationRedBackgroundHook(Api101IntArgumentHookBackend.INSTANCE)));
+            new NotificationRedBackgroundHook(
+                    Api101IntArgumentHookBackend.INSTANCE,
+                    Api101BooleanArgumentHookBackend.INSTANCE)));
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {

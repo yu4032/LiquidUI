@@ -52,17 +52,61 @@ ActivatableNotificationViewInjector.initBackground()
 
 `SRC_ATOP` preserves source drawable transparency. Therefore forcing only the tint argument to red can leave the blur-mode notification background transparent. That does not satisfy the requested fully opaque `#FFFF0000` behavior.
 
+## Runtime correction from device logs
+
+The first device build installed successfully but did not visibly recolor notifications. Runtime logs from the exact target showed the missing authority:
+
+```text
+ExpandableNotificationRowInjector: normalNotificationBlur:
+backgroundBlur: setMiViewBlurMode
+  com.android.systemui.statusbar.notification.row.NotificationBackgroundView
+  mode = 1
+```
+
+Targeted JADX of `ExpandableNotificationRowInjector#updateBackground$1()` and
+`#updateBlurBg(int,int,boolean)` confirms the sequence:
+
+```text
+updateBackground$1()
+  -> updateBlurBg(transparentBg, solidBg, true)
+
+updateBlurBg(..., enableBlur=true)
+  -> mBackgroundNormal.setCustomBackground(transparentBg)
+  -> NotificationUtil.applyElementViewBlend(..., mBackgroundNormal, ...)
+
+NotificationUtil.applyElementViewBlend(...)
+  -> MiBlurCompat.setMiViewBlurModeCompat(1, view)
+  -> MiBlurCompat.clearMiBackgroundBlendColorCompat(view)
+  -> MiBlurCompat.setMiBackgroundBlendColors(view, colors, 1.0f)
+```
+
+This native RenderNode blur/blend layer is independent of drawable tint and can visually override the forced red drawable.
+
+The same `updateBlurBg(...)` method already contains the authoritative no-blur path:
+
+```text
+updateBlurBg(..., enableBlur=false)
+  -> MiBlurCompat.setMiViewBlurModeCompat(0, mBackgroundNormal)
+  -> MiBlurCompat.clearMiBackgroundBlendColorCompat(mBackgroundNormal)
+  -> mBackgroundNormal.setCustomBackground(solidBg)
+```
+
+Therefore LiquidUI does not reimplement MIUI blur cleanup. It forces the existing `enableBlur` argument to `false` and lets SystemUI perform its own cleanup.
+
 ## LiquidUI hook contract
 
-`NotificationRedBackgroundHook` installs two exact, highest-priority int-argument interceptors:
+`NotificationRedBackgroundHook` installs three exact, highest-priority interceptors:
 
-1. `NotificationBackgroundView#setCustomBackground(int)`
+1. `ExpandableNotificationRowInjector#updateBlurBg(int,int,boolean)`
+   - rewrite argument 2 (`enableBlur`) to `false`;
+   - this makes SystemUI disable `NotificationBackgroundView` view blur and clear native blend colors through its existing no-blur branch.
+2. `NotificationBackgroundView#setCustomBackground(int)`
    - rewrite argument 0 to the exact runtime value of `R.drawable.notification_material_bg`;
    - resolve the resource ID from target `com.android.systemui.R$drawable`, never from a hard-coded integer.
-2. `ActivatableNotificationView#setBackgroundTintColor(int)`
+3. `ActivatableNotificationView#setBackgroundTintColor(int)`
    - rewrite argument 0 to `0xFFFF0000`.
 
-Both target classes and `R$drawable` are resolved through the target SystemUI `ClassLoader`. If any exact class, method, or resource field is absent, installation is `UNSUPPORTED`. If hook registration fails after the first interceptor is installed, the first registration is rolled back and the aggregate result is `FAILED`.
+All private target classes and `R$drawable` are resolved through the target SystemUI `ClassLoader`. If any exact class, method, or resource field is absent, installation is `UNSUPPORTED`. Registrations are transactional: if a later registration fails, every earlier registration is unhooked and the aggregate result is `FAILED`.
 
 ## Preserved SystemUI behavior
 
