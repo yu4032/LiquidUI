@@ -198,6 +198,23 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
+    public void outputTextureViewStaysVisibleForSurfaceLifecycleButHiddenByAlphaUntilFirstFrame() throws Exception {
+        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+        assertFalse(session.contains("renderer.setVisibility(View.INVISIBLE)"));
+        assertTrue(session.contains("renderer.setAlpha(0f)"));
+        assertTrue(session.contains("renderer.setAlpha(1f)"));
+
+        int create = session.indexOf("new NotificationPassBlurTextureView");
+        int hidden = session.indexOf("renderer.setAlpha(0f)", create);
+        int add = session.indexOf("host.addView(renderer", create);
+        assertTrue(create >= 0 && hidden > create && add > hidden);
+
+        int firstFrame = session.indexOf("onFirstFrameActive()");
+        int visible = session.indexOf("renderer.setAlpha(1f)", firstFrame);
+        assertTrue(firstFrame >= 0 && visible > firstFrame);
+    }
+
+    @Test
     public void glInitializationDoesNotOverwriteProducerCreatedByDeferredRecreate() throws Exception {
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
         int ensure = renderer.indexOf("private void ensureGlResources()");
