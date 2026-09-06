@@ -36,16 +36,55 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
-    public void activePathIsCpuCaptureFreeAndShadeSurfaceEndpointFree() throws Exception {
+    public void activeHookUsesGpuStreamProbeWithoutCpuCaptureApis() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        assertTrue(hook.contains("NotificationGpuPassBlurStreamProbe"));
+        assertTrue(hook.contains("streamProbe.observe(target)"));
         assertFalse(hook.contains("PixelCopy"));
         assertFalse(hook.contains("ImageReader"));
         assertFalse(hook.contains("MediaProjection"));
         assertFalse(hook.contains("ScreenCapture"));
-        assertFalse(hook.contains("SurfaceControl"));
+        assertFalse(hook.contains("SurfaceControl.capture"));
         assertFalse(hook.contains("SetPassBlurSurface"));
         assertTrue(hook.contains("NotificationShadeWindowView"));
         assertTrue(hook.contains("NotificationShadeBlurPolicy"));
+    }
+
+    @Test
+    public void gpuPassBlurProbeUsesOfficialLongLivedQuarterScaleSurfaceTexture() throws Exception {
+        String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
+        String probe = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGpuPassBlurStreamProbe.java");
+
+        assertTrue(bridge.contains("SCALE = 0.25f"));
+        assertFalse(bridge.contains("SCALE = 1.0f"));
+        assertTrue(bridge.contains("setUpdateTextureFlag"));
+        assertTrue(bridge.contains("SetPassBlurSurface"));
+
+        assertTrue(probe.contains("new SurfaceTexture"));
+        assertTrue(probe.contains("setDefaultBufferSize"));
+        assertTrue(probe.contains("setOnFrameAvailableListener"));
+        assertTrue(probe.contains("updateTexImage"));
+        assertTrue(probe.contains("SystemUiPassBlurBridge.bind"));
+        assertTrue(probe.contains("SystemUiPassBlurBridge.resumeUpdates"));
+        assertTrue(probe.contains("gpu stream frame"));
+        assertTrue(probe.contains("EGL14"));
+        assertTrue(probe.contains("GLES11Ext.GL_TEXTURE_EXTERNAL_OES"));
+
+        assertFalse(probe.contains("Bitmap"));
+        assertFalse(probe.contains("PixelCopy"));
+        assertFalse(probe.contains("ImageReader"));
+        assertFalse(probe.contains("MediaProjection"));
+        assertFalse(probe.contains("ScreenCapture"));
+        assertFalse(probe.contains("SurfaceControl.capture"));
+    }
+
+    @Test
+    public void gpuProbeDoesNotRecycleProducerOnOrdinaryObserve() throws Exception {
+        String probe = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGpuPassBlurStreamProbe.java");
+        assertTrue(probe.contains("if (binding != null && binding.bound && binding.hostRootSurface.isValid())"));
+        assertTrue(probe.contains("SystemUiPassBlurBridge.resumeUpdates(binding)"));
+        assertFalse(probe.contains("retireVendorPassBlurAuthority"));
+        assertFalse(probe.contains("ZeroCopyProducerRecoveryState"));
     }
 
     @Test
