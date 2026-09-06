@@ -156,18 +156,16 @@ public class NotificationSharedGlassArchitectureTest {
 
 
     @Test
-    public void passBlurSourceComesFromRootTaskDisplayAreaNotShadeWindowRoot() throws Exception {
+    public void passBlurSourceUsesNotificationShadeNativeRootWithoutRtdaSelector() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
-        assertTrue(hook.contains("com.android.wm.shell.RootTaskDisplayAreaOrganizer"));
-        assertTrue(hook.contains("onDisplayAreaAppeared"));
-        assertTrue(hook.contains("onDisplayAreaVanished"));
-        assertTrue(hook.contains("sourceState.observe"));
-        assertTrue(bridge.contains("SurfaceControl sourceSurface"));
-        assertTrue(renderer.contains("sourceState.snapshot"));
-        assertTrue(renderer.contains("sourceGeneration"));
-        assertFalse(bridge.contains("setPassBlurSurface.invoke(transaction, rootSurface"));
+        assertFalse(hook.contains("com.android.wm.shell.RootTaskDisplayAreaOrganizer"));
+        assertFalse(hook.contains("onDisplayAreaAppeared"));
+        assertFalse(renderer.contains("sourceState.snapshot"));
+        assertTrue(bridge.contains("sourceAuthority=NotificationShadeViewRoot-native"));
+        assertTrue(bridge.contains("setPassBlurSurface.invoke(transaction, hostRootSurface, producerSurface)"));
+        assertFalse(bridge.contains("setMiBlurWinExc"));
     }
 
     @Test

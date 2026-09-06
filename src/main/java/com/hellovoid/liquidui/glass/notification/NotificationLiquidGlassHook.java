@@ -47,9 +47,6 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
     private static final String BLUR_UTILS = "com.android.systemui.statusbar.BlurUtils";
     private static final String VIEW_ROOT_IMPL = "android.view.ViewRootImpl";
     private static final String FRAMEWORK_VIEW = "android.view.View";
-    private static final String ROOT_TASK_DISPLAY_AREA =
-            "com.android.wm.shell.RootTaskDisplayAreaOrganizer";
-    private static final String DISPLAY_AREA_INFO = "android.window.DisplayAreaInfo";
 
     private final BeforeMethodHookBackend backend;
     private final ArgumentRewriteHookBackend argumentBackend;
@@ -79,8 +76,6 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
         final NotificationGlassActivityState activityState = new NotificationGlassActivityState();
         final NotificationPassBlurAuthorityState authorityState =
                 new NotificationPassBlurAuthorityState();
-        final NotificationPassBlurSourceState sourceState =
-                new NotificationPassBlurSourceState();
         final Method rowAttached;
         final Method rowDetached;
         final List<Method> wrapperReinflated;
@@ -90,9 +85,6 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
         final Method setMiBackgroundBlurMode;
         final Method blurUtilsApplyBlur;
         final Method viewRootGetView;
-        final Method displayAreaAppeared;
-        final Method displayAreaVanished;
-        final Field displayAreaDisplayId;
         final Field blurProviderView;
         final Field blendBackgroundView;
         final Class<?> shadeWindowClass;
@@ -114,8 +106,6 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             Class<?> blurUtilsClass = TargetClassResolver.require(classLoader, BLUR_UTILS);
             Class<?> viewRootImplClass = TargetClassResolver.require(classLoader, VIEW_ROOT_IMPL);
             Class<?> frameworkViewClass = TargetClassResolver.require(classLoader, FRAMEWORK_VIEW);
-            Class<?> rootTaskDisplayAreaClass = TargetClassResolver.require(classLoader, ROOT_TASK_DISPLAY_AREA);
-            Class<?> displayAreaInfoClass = TargetClassResolver.require(classLoader, DISPLAY_AREA_INFO);
 
             rowAttached = accessible(rowClass.getDeclaredMethod("onAttachedToWindow"));
             rowDetached = accessible(rowClass.getDeclaredMethod("onDetachedFromWindow"));
@@ -156,11 +146,6 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             blurUtilsApplyBlur = accessible(blurUtilsClass.getDeclaredMethod(
                     "applyBlur", viewRootImplClass, int.class, boolean.class));
             viewRootGetView = accessible(viewRootImplClass.getDeclaredMethod("getView"));
-            displayAreaAppeared = accessible(rootTaskDisplayAreaClass.getDeclaredMethod(
-                    "onDisplayAreaAppeared", displayAreaInfoClass, android.view.SurfaceControl.class));
-            displayAreaVanished = accessible(rootTaskDisplayAreaClass.getDeclaredMethod(
-                    "onDisplayAreaVanished", displayAreaInfoClass));
-            displayAreaDisplayId = accessible(displayAreaInfoClass.getDeclaredField("displayId"));
 
             NotificationGlassNodeCollector collector = new NotificationGlassNodeCollector(
                     rowClass,
@@ -183,7 +168,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                             disableBlur,
                             clearBlend);
             runtime = new NotificationGlassRuntime(
-                    stackClass, collector, materialController, activityState, authorityState, sourceState);
+                    stackClass, collector, materialController, activityState, authorityState);
         } catch (ClassNotFoundException | NoSuchMethodException | NoSuchFieldException error) {
             return HookInstallResult.unsupported(HOOK_ID, "exact notification glass contract missing: " + error);
         } catch (Throwable error) {
@@ -210,22 +195,6 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                         BeforeMethodHookBackend.PRIORITY_HIGHEST,
                         (thisObject, args) -> runtime.onWrapperObserved(thisObject))::unhook);
             }
-
-            rollbacks.add(backend.intercept(
-                    displayAreaAppeared,
-                    BeforeMethodHookBackend.PRIORITY_HIGHEST,
-                    (thisObject, args) -> {
-                        if (args.length < 2 || !(args[1] instanceof android.view.SurfaceControl source)) return;
-                        int displayId = displayAreaDisplayId.getInt(args[0]);
-                        sourceState.observe(displayId, source);
-                    })::unhook);
-            rollbacks.add(backend.intercept(
-                    displayAreaVanished,
-                    BeforeMethodHookBackend.PRIORITY_HIGHEST,
-                    (thisObject, args) -> {
-                        if (args.length == 0 || args[0] == null) return;
-                        sourceState.remove(displayAreaDisplayId.getInt(args[0]), null);
-                    })::unhook);
 
             rollbacks.add(argumentBackend.intercept(
                     blurProviderSetRatio,

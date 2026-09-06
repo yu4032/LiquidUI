@@ -47,13 +47,11 @@ mapfile -t PURE_MAIN < <(
        "$ROOT/src/main/java/com/hellovoid/liquidui/diagnostics" \
        -name '*.java' -print | sort
 )
-for f in NotificationGlassNode.java NotificationGlassSceneSnapshot.java NotificationGlassSceneState.java ZeroCopyProducerRecoveryState.java Miuix307BackdropMapping.java NotificationGlassActivityState.java NotificationShadeBlurPolicy.java NotificationPassBlurAuthorityState.java NotificationPassBlurSourceState.java; do
+for f in NotificationGlassNode.java NotificationGlassSceneSnapshot.java NotificationGlassSceneState.java ZeroCopyProducerRecoveryState.java Miuix307BackdropMapping.java NotificationGlassActivityState.java NotificationShadeBlurPolicy.java NotificationPassBlurAuthorityState.java; do
   PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/notification/$f")
 done
 mapfile -t TESTS < <(find "$ROOT/src/test/java" -name '*.java' -print | sort)
-javac --release 17 -d "$WORK/classes" \
-  "$WORK/stubs/org/junit/Test.java" "$WORK/stubs/org/junit/Assert.java" "$WORK/TestRunner.java" \
-  "${PURE_MAIN[@]}" "${TESTS[@]}"
+javac --release 17 -d "$WORK/classes" "$WORK/stubs/org/junit/Test.java" "$WORK/stubs/org/junit/Assert.java" "$WORK/TestRunner.java" "${PURE_MAIN[@]}" "${TESTS[@]}"
 mapfile -t TEST_CLASSES < <(find "$ROOT/src/test/java" -name '*Test.java' -print | sort | sed -e "s#^$ROOT/src/test/java/##" -e 's#/#.#g' -e 's#\.java$##')
 (cd "$ROOT" && java -cp "$WORK/classes" TestRunner "${TEST_CLASSES[@]}")
 test "$(cat "$ROOT/src/main/resources/META-INF/xposed/scope.list")" = "com.android.systemui"

@@ -24,9 +24,6 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
     private final NotificationGlassActivityState activityState;
     private final NotificationPassBlurAuthorityState authorityState;
     private final NotificationPassBlurAuthorityState.Listener authorityListener;
-    private final NotificationPassBlurSourceState sourceState;
-    private final NotificationPassBlurSourceState.Listener sourceListener;
-    private final int displayId;
     private final NotificationGlassSceneState sceneState = new NotificationGlassSceneState();
     private final WeakHashMap<Object, Boolean> rows = new WeakHashMap<>();
     private final WeakHashMap<Object, Boolean> wrappers = new WeakHashMap<>();
@@ -47,8 +44,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
             NotificationGlassNodeCollector collector,
             NotificationVendorMaterialController materialController,
             NotificationGlassActivityState activityState,
-            NotificationPassBlurAuthorityState authorityState,
-            NotificationPassBlurSourceState sourceState) {
+            NotificationPassBlurAuthorityState authorityState) {
         this.stackRef = new WeakReference<>(stack);
         this.parentRef = new WeakReference<>(parent);
         this.collector = collector;
@@ -56,9 +52,6 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         this.activityState = activityState;
         this.authorityState = authorityState;
         this.authorityListener = this::onVendorPassBlurChanged;
-        this.sourceState = sourceState;
-        this.displayId = stack.getDisplay() != null ? stack.getDisplay().getDisplayId() : 0;
-        this.sourceListener = this::onPassBlurSourceChanged;
 
         host = new NotificationGlassHostView(parent.getContext());
         host.setId(View.generateViewId());
@@ -70,14 +63,12 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
                         ViewGroup.LayoutParams.MATCH_PARENT));
 
         renderer = new NotificationPassBlurTextureView(
-                parent.getContext(), stack, sceneState, this, authorityState.isEnabled(),
-                sourceState, displayId);
+                parent.getContext(), stack, sceneState, this, authorityState.isEnabled());
         renderer.setVisibility(View.INVISIBLE);
         host.addView(renderer, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
         authorityState.addListener(authorityListener);
-        sourceState.addListener(displayId, sourceListener);
         installPreDraw(stack);
         log("created stack=" + stack.getClass().getName()
                 + " parent=" + parent.getClass().getName()
@@ -155,7 +146,6 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         active = false;
         setShadeBlurSuppression(false);
         authorityState.removeListener(authorityListener);
-        sourceState.removeListener(sourceListener);
         removePreDraw();
         materialController.restoreAll();
         sceneState.clear();
@@ -183,20 +173,6 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         }
         renderer.setVendorPassBlurEnabled(true, "hyperos-notifPassBlur");
         refreshScene();
-    }
-
-    private void onPassBlurSourceChanged(NotificationPassBlurSourceState.Snapshot snapshot) {
-        if (shutdown || snapshot.displayId() != displayId) return;
-        log("task display source available=" + snapshot.available()
-                + " generation=" + snapshot.generation());
-        if (!snapshot.available()) {
-            active = false;
-            renderer.setVisibility(View.INVISIBLE);
-            setShadeBlurSuppression(false);
-            materialController.restoreAll();
-        }
-        renderer.onPassBlurSourceChanged("root-task-display-area");
-        if (snapshot.available() && authorityState.isEnabled()) refreshScene();
     }
 
     private void installPreDraw(View stack) {

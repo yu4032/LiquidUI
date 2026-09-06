@@ -10,47 +10,38 @@ import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
-/** Binds a WM Shell RootTaskDisplayArea source into a caller-owned PassBlur producer surface. */
+/** Experimental observer endpoint attached to HyperOS's own NotificationShade PassBlur root. */
 final class SystemUiPassBlurBridge {
     private static final String TAG = "[NotifGlass][PBGL]";
     private static final float SCALE = 1.0f;
 
     static final class Binding {
-        final SurfaceControl sourceSurface;
         final SurfaceControl hostRootSurface;
         final Method setPassBlurSurface;
         final Method setUpdateTextureFlag;
-        final String sourceName;
         final String hostRootName;
         final int viewRootIdentity;
         final int surfaceSequenceId;
-        final int sourceLayerId;
-        final long sourceGeneration;
+        final int rootLayerId;
         final long endpointGeneration;
         boolean bound = true;
         boolean updatesEnabled = true;
 
-        Binding(SurfaceControl sourceSurface,
-                SurfaceControl hostRootSurface,
+        Binding(SurfaceControl hostRootSurface,
                 Method setPassBlurSurface,
                 Method setUpdateTextureFlag,
-                String sourceName,
                 String hostRootName,
                 int viewRootIdentity,
                 int surfaceSequenceId,
-                int sourceLayerId,
-                long sourceGeneration,
+                int rootLayerId,
                 long endpointGeneration) {
-            this.sourceSurface = sourceSurface;
             this.hostRootSurface = hostRootSurface;
             this.setPassBlurSurface = setPassBlurSurface;
             this.setUpdateTextureFlag = setUpdateTextureFlag;
-            this.sourceName = sourceName;
             this.hostRootName = hostRootName;
             this.viewRootIdentity = viewRootIdentity;
             this.surfaceSequenceId = surfaceSequenceId;
-            this.sourceLayerId = sourceLayerId;
-            this.sourceGeneration = sourceGeneration;
+            this.rootLayerId = rootLayerId;
             this.endpointGeneration = endpointGeneration;
         }
     }
@@ -58,12 +49,11 @@ final class SystemUiPassBlurBridge {
     private SystemUiPassBlurBridge() {}
 
     static Binding bind(View materialHost,
-                        SurfaceControl sourceSurface,
-                        long sourceGeneration,
+                        SurfaceControl rootSurface,
                         Surface producerSurface,
                         long endpointGeneration) {
-        if (materialHost == null || sourceSurface == null || producerSurface == null) return null;
-        if (!sourceSurface.isValid()) return null;
+        if (materialHost == null || rootSurface == null || producerSurface == null) return null;
+        if (!rootSurface.isValid()) return null;
         try {
             Object viewRoot = getViewRootImpl(materialHost);
             if (viewRoot == null) {
@@ -72,9 +62,11 @@ final class SystemUiPassBlurBridge {
             }
             Method getSurfaceControl = viewRoot.getClass().getDeclaredMethod("getSurfaceControl");
             getSurfaceControl.setAccessible(true);
-            Object hostValue = getSurfaceControl.invoke(viewRoot);
-            if (!(hostValue instanceof SurfaceControl hostRootSurface) || !hostRootSurface.isValid()) {
-                log("bind unavailable host root invalid");
+            Object rootValue = getSurfaceControl.invoke(viewRoot);
+            if (!(rootValue instanceof SurfaceControl hostRootSurface)
+                    || !hostRootSurface.isValid()
+                    || !isSameSurface(hostRootSurface, rootSurface)) {
+                log("bind unavailable NotificationShade root changed");
                 return null;
             }
 
@@ -84,34 +76,28 @@ final class SystemUiPassBlurBridge {
             Method setUpdateTextureFlag = tx.getMethod(
                     "setUpdateTextureFlag", SurfaceControl.class, boolean.class, float.class);
 
-            String sourceName = surfaceName(sourceSurface);
             String hostRootName = surfaceName(hostRootSurface);
             try (SurfaceControl.Transaction transaction = new SurfaceControl.Transaction()) {
-                setPassBlurSurface.invoke(transaction, sourceSurface, producerSurface);
-                setUpdateTextureFlag.invoke(transaction, sourceSurface, true, SCALE);
+                setPassBlurSurface.invoke(transaction, hostRootSurface, producerSurface);
+                setUpdateTextureFlag.invoke(transaction, hostRootSurface, true, SCALE);
                 transaction.apply();
             }
 
             Binding binding = new Binding(
-                    sourceSurface,
                     hostRootSurface,
                     setPassBlurSurface,
                     setUpdateTextureFlag,
-                    sourceName,
                     hostRootName,
                     System.identityHashCode(viewRoot),
                     readSurfaceSequenceId(viewRoot),
-                    surfaceLayerId(sourceSurface),
-                    sourceGeneration,
+                    surfaceLayerId(hostRootSurface),
                     endpointGeneration);
-            log("bound source=" + sourceName
-                    + " sourceLayer=" + binding.sourceLayerId
-                    + " sourceGen=" + sourceGeneration
-                    + " hostRoot=" + hostRootName
+            log("bound root=" + hostRootName
+                    + " rootLayer=" + binding.rootLayerId
                     + " surfaceSeq=" + binding.surfaceSequenceId
                     + " viewRoot=" + binding.viewRootIdentity
                     + " endpointGen=" + endpointGeneration
-                    + " sourceAuthority=RootTaskDisplayArea");
+                    + " sourceAuthority=NotificationShadeViewRoot-native");
             return binding;
         } catch (Throwable error) {
             log("bind unavailable " + error);
@@ -123,15 +109,14 @@ final class SystemUiPassBlurBridge {
     static void pauseUpdates(Binding binding) { setUpdatesEnabled(binding, false); }
 
     private static void setUpdatesEnabled(Binding binding, boolean enabled) {
-        if (binding == null || !binding.bound || !binding.sourceSurface.isValid()) return;
+        if (binding == null || !binding.bound || !binding.hostRootSurface.isValid()) return;
         if (binding.updatesEnabled == enabled) return;
         try (SurfaceControl.Transaction transaction = new SurfaceControl.Transaction()) {
             binding.setUpdateTextureFlag.invoke(
-                    transaction, binding.sourceSurface, enabled, SCALE);
+                    transaction, binding.hostRootSurface, enabled, SCALE);
             transaction.apply();
             binding.updatesEnabled = enabled;
-            log("updates=" + enabled + " source=" + binding.sourceName
-                    + " sourceGen=" + binding.sourceGeneration
+            log("updates=" + enabled + " root=" + binding.hostRootName
                     + " endpointGen=" + binding.endpointGeneration);
         } catch (Throwable error) {
             log("update toggle failed " + error);
@@ -141,10 +126,11 @@ final class SystemUiPassBlurBridge {
     static void unbind(Binding binding) {
         if (binding == null || !binding.bound) return;
         try {
-            if (binding.sourceSurface.isValid()) {
+            if (binding.hostRootSurface.isValid()) {
                 try (SurfaceControl.Transaction transaction = new SurfaceControl.Transaction()) {
-                    binding.setPassBlurSurface.invoke(transaction, binding.sourceSurface, null);
-                    binding.setUpdateTextureFlag.invoke(transaction, binding.sourceSurface, false, SCALE);
+                    setPassBlurSurfaceToNull(binding, transaction);
+                    binding.setUpdateTextureFlag.invoke(
+                            transaction, binding.hostRootSurface, false, SCALE);
                     transaction.apply();
                 }
             }
@@ -154,6 +140,11 @@ final class SystemUiPassBlurBridge {
             binding.bound = false;
             binding.updatesEnabled = false;
         }
+    }
+
+    private static void setPassBlurSurfaceToNull(
+            Binding binding, SurfaceControl.Transaction transaction) throws Exception {
+        binding.setPassBlurSurface.invoke(transaction, binding.hostRootSurface, null);
     }
 
     static int readSurfaceSequenceId(Object viewRoot) {
@@ -213,6 +204,18 @@ final class SystemUiPassBlurBridge {
             return value instanceof String ? (String) value : String.valueOf(surface);
         } catch (Throwable ignored) {
             return String.valueOf(surface);
+        }
+    }
+
+    private static boolean isSameSurface(SurfaceControl first, SurfaceControl second) {
+        if (first == second) return true;
+        if (first == null || second == null) return false;
+        try {
+            Method method = SurfaceControl.class.getMethod("isSameSurface", SurfaceControl.class);
+            Object value = method.invoke(first, second);
+            return value instanceof Boolean && (Boolean) value;
+        } catch (Throwable ignored) {
+            return first.equals(second);
         }
     }
 

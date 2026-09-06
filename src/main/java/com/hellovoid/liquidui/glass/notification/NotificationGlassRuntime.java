@@ -21,7 +21,6 @@ final class NotificationGlassRuntime {
     private final NotificationVendorMaterialController materialControllerPrototype;
     private final NotificationGlassActivityState activityState;
     private final NotificationPassBlurAuthorityState authorityState;
-    private final NotificationPassBlurSourceState sourceState;
     private final WeakHashMap<View, NotificationGlassSession> sessions = new WeakHashMap<>();
     private final WeakHashMap<Object, NotificationGlassSession> rowOwners = new WeakHashMap<>();
     private final WeakHashMap<Object, List<WeakReference<Object>>> pendingWrappers = new WeakHashMap<>();
@@ -31,14 +30,12 @@ final class NotificationGlassRuntime {
             NotificationGlassNodeCollector collector,
             NotificationVendorMaterialController materialController,
             NotificationGlassActivityState activityState,
-            NotificationPassBlurAuthorityState authorityState,
-            NotificationPassBlurSourceState sourceState) {
+            NotificationPassBlurAuthorityState authorityState) {
         this.stackClass = stackClass;
         this.collector = collector;
         this.materialControllerPrototype = materialController;
         this.activityState = activityState;
         this.authorityState = authorityState;
-        this.sourceState = sourceState;
     }
 
     void onRowAttached(Object rowObject) {
@@ -52,7 +49,7 @@ final class NotificationGlassRuntime {
         if (session == null || session.isShutdown()) {
             session = new NotificationGlassSession(
                     stack, parent, collector, materialControllerPrototype.fork(),
-                    activityState, authorityState, sourceState);
+                    activityState, authorityState);
             sessions.put(stack, session);
         }
         rowOwners.put(rowObject, session);
