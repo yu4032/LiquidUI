@@ -19,10 +19,9 @@ import java.util.Objects;
  * Notification material hook derived from the supplied MiuiSystemUI.apk and HyperLight APK.
  *
  * The target build calls ExpandableNotificationRowInjector#updateBackground$1() from multiple
- * classes (ExpandableNotificationRow, NotificationContentView, NotificationChildrenContainer and
- * wrappers). Internal calls inside updateBackground$1/updateBlurBg/NotificationUtil/MiBlurCompat
- * can bypass libxposed interception, so LiquidUI hooks this cross-class outer boundary AFTER
- * SystemUI finishes and applies the HyperLight element material to its exact mBackgroundNormal.
+ * classes. LiquidUI hooks this cross-class outer boundary AFTER SystemUI finishes, resolves the
+ * exact inherited row instance and mBackgroundNormal, clears SystemUI's element material, then
+ * applies the custom notification material.
  */
 public final class NotificationLiquidGlassHook implements SystemUiHook {
     public static final String HOOK_ID = "notification.liquid-glass";
@@ -73,9 +72,14 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             Class<?> notificationUtil = TargetClassResolver.require(classLoader, NOTIFICATION_UTIL);
             Class<?> childrenContainer = TargetClassResolver.require(classLoader, CHILDREN_CONTAINER);
 
-            // Supplied MiuiSystemUI.apk: this is the externally-invoked material update boundary.
             updateBackground = accessible(injectorClass.getDeclaredMethod("updateBackground$1"));
-            injectorViewField = accessible(injectorClass.getDeclaredField("view"));
+
+            // Verified from supplied MiuiSystemUI.apk:
+            // ExpandableNotificationRowInjector -> ActivatableNotificationViewInjector ->
+            // ExpandableOutlineViewInjector -> ExpandableViewInjector, where `view` is declared as
+            // public final ExpandableView. getDeclaredField() on the subclass is therefore wrong;
+            // getField() intentionally resolves the inherited public contract.
+            injectorViewField = accessible(injectorClass.getField("view"));
             backgroundNormalField = accessible(rowClass.getDeclaredField("mBackgroundNormal"));
             setChildrenExpanded = accessible(childrenContainer.getDeclaredMethod(
                     "setChildrenExpanded", boolean.class));
@@ -86,6 +90,8 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     "setMixEffectEnabled", boolean.class);
             Method setMiViewBlurMode = View.class.getMethod(
                     "setMiViewBlurMode", int.class);
+            Method clearMiBackgroundBlendColor = View.class.getMethod(
+                    "clearMiBackgroundBlendColor");
             Method setViewBackgroundBlendColors = View.class.getMethod(
                     "setMiBackgroundBlendColors", ArrayList.class);
             Method setMiBloomStroke = optionalPublicMethod(
@@ -95,13 +101,15 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             materialController = new NotificationVendorMaterialController(
                     setMixEffectEnabled,
                     setMiViewBlurMode,
+                    clearMiBackgroundBlendColor,
                     setViewBackgroundBlendColors,
                     setMiBloomStroke);
 
             android.util.Log.i("LiquidUI",
-                    "[LUI][NotifGlass][Hook] resolved cross-class material authority "
+                    "[LUI][NotifGlass][Hook] resolved inherited row authority "
                             + "ExpandableNotificationRowInjector#updateBackground$1() "
-                            + "bloom=" + (setMiBloomStroke != null));
+                            + "viewOwner=ExpandableViewInjector bloom="
+                            + (setMiBloomStroke != null));
         } catch (ClassNotFoundException | NoSuchMethodException | NoSuchFieldException error) {
             android.util.Log.e("LiquidUI",
                     "[LUI][NotifGlass][Hook] notification material contract missing", error);
@@ -116,8 +124,9 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
 
         List<Runnable> rollbacks = new ArrayList<>();
         try {
-            // Cross-class callers reach this method through the libxposed bridge. Apply only after
-            // SystemUI has completed setCustomBackground / round / viewBlur / blend mutation.
+            // Apply AFTER SystemUI has completed its background update. Decompiled
+            // NotificationUtil#applyElementViewBlend leaves mBackgroundNormal with view-blur mode=1
+            // plus SystemUI blend colors. Remove exactly those defaults before custom material.
             rollbacks.add(afterBackend.intercept(
                     updateBackground,
                     AfterMethodHookBackend.PRIORITY_HIGHEST,
@@ -131,6 +140,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
 
                             Object registeredRow = targetRegistry.observeMaterialTarget(target);
                             if (registeredRow == null) return;
+                            materialController.suppressSystemUiElementMaterial(target);
                             materialController.applyHyperLightElementMaterial(target, registeredRow);
                         } catch (Throwable error) {
                             android.util.Log.e("LiquidUI",
@@ -149,7 +159,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     (thisObject, args) -> targetRegistry.observeRoundRect(args))::unhook);
 
             android.util.Log.i("LiquidUI",
-                    "[LUI][NotifGlass][Hook] installed updateBackground material hook");
+                    "[LUI][NotifGlass][Hook] installed inherited-row updateBackground hook");
             return HookInstallResult.installed(HOOK_ID);
         } catch (Throwable error) {
             for (int index = rollbacks.size() - 1; index >= 0; index--) {
