@@ -99,7 +99,7 @@ public class NotificationNativePassBlurSourceExperimentTest {
     }
 
     @Test
-    public void agslRefractionProbeRunsOnTheSameCardAfterNativePassBlur() throws Exception {
+    public void agslRefractionProbeWaitsForRealLayout() throws Exception {
         String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
         assertTrue(controller.contains("android.graphics.RuntimeShader"));
         assertTrue(controller.contains("android.graphics.RenderEffect"));
@@ -107,13 +107,34 @@ public class NotificationNativePassBlurSourceExperimentTest {
         assertTrue(controller.contains("chromaticAberration"));
         assertTrue(controller.contains("createRuntimeShaderEffect"));
         assertTrue(controller.contains("target.setRenderEffect"));
+        assertTrue(controller.contains("scheduleAgslRefractionProbe"));
+        assertTrue(controller.contains("addOnLayoutChangeListener"));
+        assertTrue(controller.contains("removeOnLayoutChangeListener"));
         assertTrue(controller.contains("applied AGSL refraction probe"));
-        assertTrue(controller.indexOf("enableCardBackdrop(target)")
-                < controller.indexOf("applyAgslRefractionProbe(target)"));
+        assertTrue(controller.indexOf("enableGpuBackdropContainer(row, target)")
+                < controller.indexOf("scheduleAgslRefractionProbe(target)"));
         assertFalse(controller.contains("PixelCopy"));
         assertFalse(controller.contains("MediaProjection"));
         assertFalse(controller.contains("ScreenCapture"));
         assertFalse(controller.contains("SurfaceControl.capture"));
+    }
+
+    @Test
+    public void gpuOnlyBackdropProbeMirrorsVerifiedSystemUiClockContainerTuple() throws Exception {
+        String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
+        assertTrue(controller.contains("chooseBackgroundBlurContainer"));
+        assertTrue(controller.contains("setPassTextureScale"));
+        assertTrue(controller.contains("disableMiBackgroundContainBelow"));
+        assertTrue(controller.contains("setPassWindowBlurEnabled.invoke(container, true)"));
+        assertTrue(controller.contains("setMiBackgroundBlurMode.invoke(container, 1)"));
+        assertTrue(controller.contains("setMiBackgroundBlurRadius.invoke(container, radiusPx)"));
+        assertTrue(controller.contains("setPassTextureScale.invoke(container, 0.0f)"));
+        assertTrue(controller.contains("disableMiBackgroundContainBelow.invoke(container, true)"));
+        assertTrue(controller.contains("chooseBackgroundBlurContainer.invoke(container, member)"));
+        assertTrue(controller.contains("GPU backdrop container"));
+        assertFalse(controller.contains("Bitmap"));
+        assertFalse(controller.contains("PixelCopy"));
+        assertFalse(controller.contains("ScreenCapture"));
     }
 
     @Test
