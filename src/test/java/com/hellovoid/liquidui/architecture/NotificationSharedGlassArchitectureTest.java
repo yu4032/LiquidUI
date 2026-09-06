@@ -26,9 +26,10 @@ public class NotificationSharedGlassArchitectureTest {
     @Test
     public void activeMaterialAuthorityDoesNotBranchOnNotificationStyle() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        assertTrue(hook.contains("ExpandableNotificationRowInjector"));
         assertTrue(hook.contains("ExpandableNotificationRow"));
         assertTrue(hook.contains("NotificationUtil"));
-        assertTrue(hook.contains("MiBlurCompat"));
+        assertFalse(hook.contains("MI_BLUR_COMPAT"));
         assertFalse(hook.contains("showMiuiStyle"));
         assertFalse(hook.contains("notifStyle"));
         assertFalse(hook.contains("Google"));
@@ -50,9 +51,6 @@ public class NotificationSharedGlassArchitectureTest {
         String collector = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java");
         String registry = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationMaterialTargetRegistry.java");
 
-        // Target SystemUI's setRoundRect(View, boolean, boolean) flags control outline geometry
-        // and flip-radius selection; they are not top/bottom rounded flags. Per-edge magnitudes
-        // remain getTopCornerRadius/getBottomCornerRadius -> NotificationBackgroundView#setRadius.
         assertTrue(collector.contains("topCornerRadius.invoke(rowObject)"));
         assertTrue(collector.contains("bottomCornerRadius.invoke(rowObject)"));
         assertFalse(collector.contains("roundState.topRounded()"));
