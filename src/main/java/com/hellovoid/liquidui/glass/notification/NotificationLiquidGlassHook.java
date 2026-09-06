@@ -3,6 +3,7 @@ package com.hellovoid.liquidui.glass.notification;
 import android.view.View;
 
 import com.hellovoid.liquidui.hook.AfterMethodHookBackend;
+import com.hellovoid.liquidui.hook.ArgumentRewriteHookBackend;
 import com.hellovoid.liquidui.hook.BeforeMethodHookBackend;
 import com.hellovoid.liquidui.hook.HookInstallResult;
 import com.hellovoid.liquidui.hook.SystemUiHook;
@@ -14,6 +15,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Notification material hook derived from the supplied MiuiSystemUI.apk and HyperLight APK.
@@ -21,7 +23,8 @@ import java.util.Objects;
  * The target build calls ExpandableNotificationRowInjector#updateBackground$1() from multiple
  * classes. LiquidUI hooks this cross-class outer boundary AFTER SystemUI finishes, resolves the
  * exact inherited row instance and mBackgroundNormal, clears SystemUI's element material, then
- * applies the custom notification material.
+ * applies the custom notification material. While notification glass is enabled, the SystemUI
+ * shade backdrop blur is also forced off so live backdrop sampling can be evaluated visually.
  */
 public final class NotificationLiquidGlassHook implements SystemUiHook {
     public static final String HOOK_ID = "notification.liquid-glass";
@@ -34,17 +37,31 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             "com.android.systemui.statusbar.notification.utils.NotificationUtil";
     private static final String CHILDREN_CONTAINER =
             "com.android.systemui.statusbar.notification.stack.NotificationChildrenContainer";
+    private static final String SHADE_BLUR_PROVIDER =
+            "com.miui.systemui.shade.blur.ShadeBlendBlurController$BlurProvider";
+    private static final String SHADE_BLEND_BACKGROUND =
+            "com.miui.systemui.shade.blur.ShadeBlendBlurController$BlendBackground";
+    private static final String SHADE_WINDOW =
+            "com.android.systemui.shade.NotificationShadeWindowView";
+    private static final String NOTIFICATION_PANEL =
+            "com.android.systemui.shade.NotificationPanelView";
+    private static final String BLUR_UTILS =
+            "com.android.systemui.statusbar.BlurUtils";
+    private static final String VIEW_ROOT_IMPL = "android.view.ViewRootImpl";
 
     private final BeforeMethodHookBackend beforeBackend;
     private final AfterMethodHookBackend afterBackend;
+    private final ArgumentRewriteHookBackend argumentBackend;
     private final boolean enabled;
 
     public NotificationLiquidGlassHook(
             BeforeMethodHookBackend beforeBackend,
             AfterMethodHookBackend afterBackend,
+            ArgumentRewriteHookBackend argumentBackend,
             boolean enabled) {
         this.beforeBackend = Objects.requireNonNull(beforeBackend, "beforeBackend");
         this.afterBackend = Objects.requireNonNull(afterBackend, "afterBackend");
+        this.argumentBackend = Objects.requireNonNull(argumentBackend, "argumentBackend");
         this.enabled = enabled;
     }
 
@@ -62,8 +79,17 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
         final Method updateBackground;
         final Method setChildrenExpanded;
         final Method setRoundRect;
+        final Method blurProviderSetRatio;
+        final Method blendBackgroundSetEnabled;
+        final Method blurUtilsApplyBlur;
+        final Method viewRootGetView;
+        final Method setMiBackgroundBlurMode;
         final Field injectorViewField;
         final Field backgroundNormalField;
+        final Field blurProviderView;
+        final Field blendBackgroundView;
+        final Class<?> shadeWindowClass;
+        final Class<?> notificationPanelClass;
         final NotificationMaterialTargetRegistry targetRegistry;
         final NotificationVendorMaterialController materialController;
         try {
@@ -71,13 +97,18 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             Class<?> injectorClass = TargetClassResolver.require(classLoader, ROW_INJECTOR);
             Class<?> notificationUtil = TargetClassResolver.require(classLoader, NOTIFICATION_UTIL);
             Class<?> childrenContainer = TargetClassResolver.require(classLoader, CHILDREN_CONTAINER);
+            Class<?> blurProviderClass = TargetClassResolver.require(classLoader, SHADE_BLUR_PROVIDER);
+            Class<?> blendBackgroundClass = TargetClassResolver.require(classLoader, SHADE_BLEND_BACKGROUND);
+            shadeWindowClass = TargetClassResolver.require(classLoader, SHADE_WINDOW);
+            notificationPanelClass = TargetClassResolver.require(classLoader, NOTIFICATION_PANEL);
+            Class<?> blurUtilsClass = TargetClassResolver.require(classLoader, BLUR_UTILS);
+            Class<?> viewRootImplClass = TargetClassResolver.require(classLoader, VIEW_ROOT_IMPL);
 
             updateBackground = accessible(injectorClass.getDeclaredMethod("updateBackground$1"));
 
             // Verified from supplied MiuiSystemUI.apk:
             // ExpandableNotificationRowInjector inherits public final ExpandableViewInjector#view.
             // ExpandableNotificationRow inherits public ActivatableNotificationView#mBackgroundNormal.
-            // getField() intentionally resolves both inherited public contracts.
             injectorViewField = accessible(injectorClass.getField("view"));
             backgroundNormalField = accessible(rowClass.getField("mBackgroundNormal"));
             setChildrenExpanded = accessible(childrenContainer.getDeclaredMethod(
@@ -96,6 +127,20 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             Method setMiBloomStroke = optionalPublicMethod(
                     View.class, "setMiBloomStroke", float[].class);
 
+            // Restored from the earlier task-backed notification route and checked against the
+            // supplied SystemUI contracts. These hooks affect only the notification shade backdrop.
+            blurProviderSetRatio = accessible(blurProviderClass.getDeclaredMethod(
+                    "setBlurRatio", float.class));
+            blendBackgroundSetEnabled = accessible(blendBackgroundClass.getDeclaredMethod(
+                    "setEnabled", boolean.class));
+            blurUtilsApplyBlur = accessible(blurUtilsClass.getDeclaredMethod(
+                    "applyBlur", viewRootImplClass, int.class, boolean.class));
+            viewRootGetView = accessible(viewRootImplClass.getDeclaredMethod("getView"));
+            blurProviderView = findField(blurProviderClass, "view");
+            blendBackgroundView = findField(blendBackgroundClass, "view");
+            setMiBackgroundBlurMode = View.class.getMethod(
+                    "setMiBackgroundBlurMode", int.class);
+
             targetRegistry = new NotificationMaterialTargetRegistry(rowClass);
             materialController = new NotificationVendorMaterialController(
                     setMixEffectEnabled,
@@ -105,8 +150,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     setMiBloomStroke);
 
             android.util.Log.i("LiquidUI",
-                    "[LUI][NotifGlass][Hook] resolved inherited notification authority "
-                            + "ExpandableNotificationRowInjector#updateBackground$1() "
+                    "[LUI][NotifGlass][Hook] resolved notification material + shade-blur diagnostic "
                             + "viewOwner=ExpandableViewInjector backgroundOwner=ActivatableNotificationView "
                             + "bloom=" + (setMiBloomStroke != null));
         } catch (ClassNotFoundException | NoSuchMethodException | NoSuchFieldException error) {
@@ -122,6 +166,9 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
         }
 
         List<Runnable> rollbacks = new ArrayList<>();
+        AtomicBoolean ratioLogged = new AtomicBoolean();
+        AtomicBoolean blendLogged = new AtomicBoolean();
+        AtomicBoolean radiusLogged = new AtomicBoolean();
         try {
             // Apply AFTER SystemUI has completed its background update. Decompiled
             // NotificationUtil#applyElementViewBlend leaves mBackgroundNormal with view-blur mode=1
@@ -157,8 +204,58 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     AfterMethodHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> targetRegistry.observeRoundRect(args))::unhook);
 
+            // Diagnostic: remove the large SystemUI shade blur so the notification card's own
+            // backdrop material can be judged against a sharp underlying scene.
+            rollbacks.add(argumentBackend.intercept(
+                    blurProviderSetRatio,
+                    ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> {
+                        if (args.length == 0 || !(args[0] instanceof Float requested)) return;
+                        Object target = blurProviderView.get(thisObject);
+                        if (!isShadeBlurTarget(target, shadeWindowClass, notificationPanelClass)) return;
+                        args[0] = NotificationShadeBlurPolicy.blurRatio(true, requested);
+                        if (target instanceof View view) {
+                            setMiBackgroundBlurMode.invoke(view, 0);
+                        }
+                        if (ratioLogged.compareAndSet(false, true)) {
+                            android.util.Log.i("LiquidUI",
+                                    "[LUI][NotifGlass][Shade] shade-ratio=0 target="
+                                            + target.getClass().getName());
+                        }
+                    })::unhook);
+
+            rollbacks.add(argumentBackend.intercept(
+                    blendBackgroundSetEnabled,
+                    ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> {
+                        if (args.length == 0 || !(args[0] instanceof Boolean requested)) return;
+                        Object target = blendBackgroundView.get(thisObject);
+                        if (!isShadeBlendTarget(target, shadeWindowClass, notificationPanelClass)) return;
+                        args[0] = NotificationShadeBlurPolicy.enabled(true, requested);
+                        if (blendLogged.compareAndSet(false, true)) {
+                            android.util.Log.i("LiquidUI",
+                                    "[LUI][NotifGlass][Shade] shade-blend=false target="
+                                            + target.getClass().getName());
+                        }
+                    })::unhook);
+
+            rollbacks.add(argumentBackend.intercept(
+                    blurUtilsApplyBlur,
+                    ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> {
+                        if (args.length < 2 || !(args[1] instanceof Integer requested)) return;
+                        Object rootView = args[0] == null ? null : viewRootGetView.invoke(args[0]);
+                        if (!shadeWindowClass.isInstance(rootView)) return;
+                        args[1] = NotificationShadeBlurPolicy.blurRadius(true, requested);
+                        if (radiusLogged.compareAndSet(false, true)) {
+                            android.util.Log.i("LiquidUI",
+                                    "[LUI][NotifGlass][Shade] shade-radius=0 root="
+                                            + rootView.getClass().getName());
+                        }
+                    })::unhook);
+
             android.util.Log.i("LiquidUI",
-                    "[LUI][NotifGlass][Hook] installed inherited-row updateBackground hook");
+                    "[LUI][NotifGlass][Hook] installed material + shade-blur diagnostic hooks");
             return HookInstallResult.installed(HOOK_ID);
         } catch (Throwable error) {
             for (int index = rollbacks.size() - 1; index >= 0; index--) {
@@ -171,6 +268,30 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             return HookInstallResult.failed(HOOK_ID,
                     "notification material hook registration failed", error);
         }
+    }
+
+    private static boolean isShadeBlurTarget(
+            Object value, Class<?> shadeWindowClass, Class<?> notificationPanelClass) {
+        return shadeWindowClass.isInstance(value) || notificationPanelClass.isInstance(value);
+    }
+
+    private static boolean isShadeBlendTarget(
+            Object value, Class<?> shadeWindowClass, Class<?> notificationPanelClass) {
+        if (!(value instanceof View view)) return false;
+        Object parent = view.getParent();
+        return shadeWindowClass.isInstance(parent) || notificationPanelClass.isInstance(parent);
+    }
+
+    private static Field findField(Class<?> owner, String name) throws NoSuchFieldException {
+        Class<?> current = owner;
+        while (current != null) {
+            try {
+                return accessible(current.getDeclaredField(name));
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(owner.getName() + "#" + name);
     }
 
     private static Method optionalPublicMethod(
