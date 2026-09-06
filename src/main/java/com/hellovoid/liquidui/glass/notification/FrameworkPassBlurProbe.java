@@ -1,6 +1,7 @@
 package com.hellovoid.liquidui.glass.notification;
 
 import android.graphics.SurfaceTexture;
+import android.view.SurfaceControl;
 import android.view.TextureView;
 import android.view.View;
 
@@ -8,38 +9,86 @@ import com.hellovoid.liquidui.Api101Bridge;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
 
 import java.lang.ref.Reference;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Read-only runtime probe for HyperOS/framework-owned PassBlur consumer objects.
  *
  * <p>This intentionally does not call addTextureView, producer-binding transactions or any
- * mutating blur API. It only inspects the live NotificationPanelView ViewRoot object graph after
- * HyperOS itself enables pass-window blur, so device logs can reveal the framework-owned consumer
- * and its TextureView/SurfaceTexture holders without disturbing the proven RTDA->Prismal path.</p>
+ * mutating blur API. It only inspects a live NotificationShade ViewRoot object graph so device
+ * logs can reveal the framework-owned consumer and its TextureView/SurfaceTexture holders without
+ * disturbing the proven RTDA->Prismal path.</p>
  */
 final class FrameworkPassBlurProbe {
     private static final String TAG = "[NotifGlass][FrameworkPB]";
-    private static final Set<Integer> PROBED_ROOTS = Collections.synchronizedSet(new java.util.HashSet<>());
     private static final int MAX_OBJECTS = 56;
     private static final int MAX_INTERESTING_FIELDS_PER_OBJECT = 48;
     private static final int MAX_INTERESTING_METHODS_PER_OBJECT = 48;
+    private static final int MAX_FINGERPRINT_FIELDS = 24;
+    private static final AtomicLong probeGeneration = new AtomicLong(1L);
+    private static final Map<Integer, InspectionStamp> INSPECTIONS =
+            Collections.synchronizedMap(new HashMap<>());
+    private static volatile WeakReference<View> panelRef = new WeakReference<>(null);
+
+    private static final class InspectionStamp {
+        final long generation;
+        final int fingerprint;
+
+        InspectionStamp(long generation, int fingerprint) {
+            this.generation = generation;
+            this.fingerprint = fingerprint;
+        }
+    }
 
     private FrameworkPassBlurProbe() {}
 
     static void inspectOnce(View notificationPanelView) {
         if (notificationPanelView == null) return;
-        notificationPanelView.post(() -> inspect(notificationPanelView));
+        panelRef = new WeakReference<>(notificationPanelView);
+        registerShadeRootFromView(notificationPanelView);
+        notificationPanelView.post(() -> inspect(notificationPanelView, true));
     }
 
-    private static void inspect(View panel) {
+    static void inspectIfGenerationChanged(View notificationPanelView) {
+        if (notificationPanelView == null) return;
+        panelRef = new WeakReference<>(notificationPanelView);
+        // Root registration is deliberately synchronous. A session/material-host trigger runs
+        // before LiquidUI's diagnostic producer can bind, so transaction observations cannot miss
+        // the first ownership handoff while the heavier object-graph walk remains posted.
+        registerShadeRootFromView(notificationPanelView);
+        notificationPanelView.post(() -> inspect(notificationPanelView, false));
+    }
+
+    static void onMatchingShadeTransaction() {
+        probeGeneration.incrementAndGet();
+        View panel = panelRef.get();
+        if (panel != null) inspectIfGenerationChanged(panel);
+    }
+
+    private static void registerShadeRootFromView(View view) {
+        if (view == null || !view.isAttachedToWindow()) return;
+        try {
+            Method getViewRootImpl = View.class.getDeclaredMethod("getViewRootImpl");
+            getViewRootImpl.setAccessible(true);
+            Object viewRoot = getViewRootImpl.invoke(view);
+            if (viewRoot != null) registerShadeRoot(viewRoot);
+        } catch (Throwable error) {
+            log("shade root pre-registration failed " + error.getClass().getSimpleName());
+        }
+    }
+
+    private static void inspect(View panel, boolean force) {
         Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
         AtomicInteger objectBudget = new AtomicInteger(MAX_OBJECTS);
         try {
@@ -50,9 +99,21 @@ final class FrameworkPassBlurProbe {
                 log("defer ViewRootImpl=null panel=" + describe(panel));
                 return;
             }
+            registerShadeRoot(viewRoot);
             int rootIdentity = System.identityHashCode(viewRoot);
-            if (!PROBED_ROOTS.add(rootIdentity)) return;
-            log("begin root=" + Integer.toHexString(rootIdentity) + " panel=" + describe(panel));
+            long generation = probeGeneration.get();
+            int fingerprint = inspectionFingerprint(viewRoot);
+            InspectionStamp previous = INSPECTIONS.get(rootIdentity);
+            if (!force && previous != null
+                    && previous.generation == generation
+                    && previous.fingerprint == fingerprint) {
+                return;
+            }
+            INSPECTIONS.put(rootIdentity, new InspectionStamp(generation, fingerprint));
+            log("begin root=" + Integer.toHexString(rootIdentity)
+                    + " generation=" + generation
+                    + " fingerprint=" + Integer.toHexString(fingerprint)
+                    + " panel=" + describe(panel));
             inspectObject("panel", panel, 0, visited, objectBudget);
             log("getViewRootImpl=" + describe(viewRoot));
             inspectObject("viewRoot", viewRoot, 0, visited, objectBudget);
@@ -63,6 +124,60 @@ final class FrameworkPassBlurProbe {
             log("root probe failed " + error.getClass().getSimpleName() + ":" + error.getMessage());
         }
         log("end visited=" + visited.size() + " remainingBudget=" + objectBudget.get());
+    }
+
+    private static int inspectionFingerprint(Object viewRoot) {
+        int fingerprint = 17;
+        fingerprint = 31 * fingerprint + System.identityHashCode(viewRoot);
+        Object renderer = readFieldByName(viewRoot, "mThreadedRenderer");
+        fingerprint = 31 * fingerprint + System.identityHashCode(renderer);
+        fingerprint = mixInterestingChildren(fingerprint, viewRoot);
+        if (renderer != null) fingerprint = mixInterestingChildren(fingerprint, renderer);
+        return fingerprint;
+    }
+
+    private static int mixInterestingChildren(int seed, Object value) {
+        int fingerprint = seed;
+        int seen = 0;
+        for (Class<?> cursor = value.getClass(); cursor != null && seen < MAX_FINGERPRINT_FIELDS;
+                cursor = cursor.getSuperclass()) {
+            Field[] fields;
+            try {
+                fields = cursor.getDeclaredFields();
+            } catch (Throwable ignored) {
+                continue;
+            }
+            for (Field field : fields) {
+                if (Modifier.isStatic(field.getModifiers())) continue;
+                String fieldName = field.getName();
+                String fieldType = field.getType().getName();
+                if (!interesting(fieldName) && !interesting(fieldType)) continue;
+                if (seen++ >= MAX_FINGERPRINT_FIELDS) break;
+                try {
+                    field.setAccessible(true);
+                    Object child = field.get(value);
+                    if (child instanceof Reference<?> reference) child = reference.get();
+                    fingerprint = 31 * fingerprint + System.identityHashCode(child);
+                } catch (Throwable ignored) {
+                    fingerprint = 31 * fingerprint + fieldName.hashCode();
+                }
+            }
+        }
+        return fingerprint;
+    }
+
+    private static void registerShadeRoot(Object viewRoot) {
+        if (viewRoot == null) return;
+        try {
+            Method getSurfaceControl = viewRoot.getClass().getDeclaredMethod("getSurfaceControl");
+            getSurfaceControl.setAccessible(true);
+            Object surface = getSurfaceControl.invoke(viewRoot);
+            if (surface instanceof SurfaceControl root && root.isValid()) {
+                FrameworkPassBlurTransactionProbe.registerShadeRoot(root);
+            }
+        } catch (Throwable error) {
+            log("shade root registration failed " + error.getClass().getSimpleName());
+        }
     }
 
     private static void inspectObject(
@@ -226,6 +341,7 @@ final class FrameworkPassBlurProbe {
         if (value == null) return false;
         String s = value.toLowerCase(Locale.ROOT);
         return s.contains("addtextureview")
+                || s.contains("removetextureview")
                 || s.contains("texture")
                 || s.contains("passblur")
                 || s.contains("passwindowblur")

@@ -1,5 +1,7 @@
 package com.hellovoid.liquidui.glass.notification;
 
+import android.view.Surface;
+import android.view.SurfaceControl;
 import android.view.View;
 
 import com.hellovoid.liquidui.hook.BeforeMethodHookBackend;
@@ -36,6 +38,19 @@ public final class FrameworkPassBlurProbeHook implements SystemUiHook {
         try {
             Class<?> viewClass = TargetClassResolver.require(classLoader, FRAMEWORK_VIEW);
             Class<?> notificationPanelClass = TargetClassResolver.require(classLoader, NOTIFICATION_PANEL);
+
+            Method onAttachedToWindow = viewClass.getDeclaredMethod("onAttachedToWindow");
+            onAttachedToWindow.setAccessible(true);
+            backend.intercept(
+                    onAttachedToWindow,
+                    BeforeMethodHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> {
+                        if (notificationPanelClass.isInstance(thisObject)
+                                && thisObject instanceof View panelView) {
+                            FrameworkPassBlurProbe.inspectIfGenerationChanged(panelView);
+                        }
+                    });
+
             Method setPassWindowBlurEnabled = viewClass.getDeclaredMethod(
                     "setPassWindowBlurEnabled", boolean.class);
             setPassWindowBlurEnabled.setAccessible(true);
@@ -52,6 +67,19 @@ public final class FrameworkPassBlurProbeHook implements SystemUiHook {
                         }
                         FrameworkPassBlurProbe.inspectOnce(panelView);
                     });
+
+            Method setPassBlurSurface = SurfaceControl.Transaction.class.getMethod(
+                    "SetPassBlurSurface", SurfaceControl.class, Surface.class);
+            Method setUpdateTextureFlag = SurfaceControl.Transaction.class.getMethod(
+                    "setUpdateTextureFlag", SurfaceControl.class, boolean.class, float.class);
+            backend.intercept(
+                    setPassBlurSurface,
+                    BeforeMethodHookBackend.PRIORITY_HIGHEST,
+                    FrameworkPassBlurTransactionProbe::observeSetPassBlurSurface);
+            backend.intercept(
+                    setUpdateTextureFlag,
+                    BeforeMethodHookBackend.PRIORITY_HIGHEST,
+                    FrameworkPassBlurTransactionProbe::observeSetUpdateTextureFlag);
             return HookInstallResult.installed(HOOK_ID);
         } catch (ClassNotFoundException | NoSuchMethodException error) {
             return HookInstallResult.unsupported(HOOK_ID, "framework PassBlur probe contract missing: " + error);

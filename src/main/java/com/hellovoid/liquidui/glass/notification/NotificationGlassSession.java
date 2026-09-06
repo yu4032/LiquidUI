@@ -74,6 +74,11 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT));
 
+        // Diagnostic only: the already-attached notification stack is guaranteed to share the
+        // live NotificationShade ViewRoot. Register that root before the renderer can submit any
+        // PassBlur transaction, then let the probe defer its heavier object-graph inspection.
+        FrameworkPassBlurProbe.inspectIfGenerationChanged(stack);
+
         renderer = new NotificationPassBlurTextureView(
                 parent.getContext(), stack, sceneState, this, authorityState.isEnabled(),
                 sourceState, contentAuthorityState, displayId);
@@ -140,6 +145,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         if (shutdown || active) return;
         active = true;
         renderer.setAlpha(1f);
+        NotificationCornerAuthorityProbe.observeMapping(renderer);
         setShadeBlurSuppression(!rows.isEmpty());
         log("first GPU frame active nodes=" + lastNodes.size());
         suppressVendorMaterial();
@@ -189,12 +195,11 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         log("content authority keyguardShowing=" + snapshot.keyguardShowing()
                 + " excludeLockWallpaper=" + snapshot.excludeLockWallpaper()
                 + " generation=" + snapshot.generation());
-        if (active) {
-            active = false;
-            renderer.setAlpha(0f);
-            setShadeBlurSuppression(false);
-            materialController.restoreAll();
-        }
+        // A content-generation change replaces the producer endpoint, but the already-presented
+        // glass remains the visual authority until the new producer presents its first frame.
+        // Keeping suppression active avoids briefly restoring HyperOS' stack/self blur above the
+        // old glass and, if the producer stalls, avoids leaving that native blur permanently on.
+        if (active) active = false;
         renderer.onPassBlurContentAuthorityChanged(snapshot);
     }
 
@@ -232,10 +237,31 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         try { if (value.isAlive()) value.removeOnPreDrawListener(listener); } catch (Throwable ignored) {}
     }
 
+    private void bootstrapRowsFromStack(View stack) {
+        if (!(stack instanceof ViewGroup stackGroup)) return;
+        int added = 0;
+        for (int index = 0; index < stackGroup.getChildCount(); index++) {
+            View child = stackGroup.getChildAt(index);
+            if (child == null || !collector.isRow(child) || !child.isAttachedToWindow()) continue;
+            if (!rows.containsKey(child)) {
+                rows.putIfAbsent(child, Boolean.TRUE);
+                added++;
+            }
+        }
+        if (added > 0) {
+            if (updatesPausedForNoRows) {
+                updatesPausedForNoRows = false;
+                renderer.setProducerUpdatesEnabled(true, "row-bootstrap");
+            }
+            log("row bootstrap added=" + added + " tracked=" + rows.size());
+        }
+    }
+
     private void refreshScene() {
         if (shutdown || !host.isAttachedToWindow()) return;
         View stack = stackRef.get();
         if (stack == null || !stack.isAttachedToWindow()) return;
+        bootstrapRowsFromStack(stack);
         List<NotificationGlassNode> nodes = new ArrayList<>();
         List<Object> stale = new ArrayList<>();
         for (Object row : new ArrayList<>(rows.keySet())) {
@@ -257,7 +283,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
             sceneState.publish(lastNodes);
             renderer.requestSceneRefresh();
         }
-        if (active) suppressVendorMaterial();
+        if (active || shadeBlurSuppressionActive) suppressVendorMaterial();
     }
 
     private void setShadeBlurSuppression(boolean enabled) {

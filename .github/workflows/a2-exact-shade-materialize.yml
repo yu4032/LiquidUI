@@ -1,0 +1,40 @@
+name: A2 exact shade consumer materializer
+on:
+  push:
+    branches:
+      - feature/framework-passblur-consumer-probe
+    paths:
+      - .a2-shade.patch
+permissions:
+  contents: write
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Apply exact shade suppression patch
+        run: |
+          git apply --check .a2-shade.patch
+          git apply .a2-shade.patch
+      - name: Run contracts
+        run: ./scripts/test-contracts.sh
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.1'
+          cache-read-only: true
+      - name: Build Android debug artifact
+        run: gradle testDebugUnitTest assembleDebug --stacktrace
+      - name: Materialize clean tree
+        run: |
+          rm .a2-shade.patch .github/workflows/a2-exact-shade-materialize.yml
+          git config user.name yu4032
+          git config user.email 4032542465@smail.lnu.edu.cn
+          git add -A
+          git commit -m 'fix: suppress exact native notification shade blur owner'
+          git push origin HEAD:feature/framework-passblur-consumer-probe
