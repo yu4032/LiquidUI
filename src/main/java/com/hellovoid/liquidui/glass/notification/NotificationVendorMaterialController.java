@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Applies LiquidUI material and native PassBlur backdrop to the exact notification target. */
 final class NotificationVendorMaterialController {
     private static final String TAG = "[NotifGlass][Material]";
-    private static final float CARD_PASS_BLUR_RADIUS_DP = 24.0f;
+    private static final float CARD_PASS_BLUR_RADIUS_DP = 2.0f;
 
     private static final int[] LIGHT_MATERIAL_COLORS = {
             -428575628, -1722658222, 869388753
