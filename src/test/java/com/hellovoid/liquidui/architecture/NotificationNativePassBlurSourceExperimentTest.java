@@ -13,32 +13,32 @@ public class NotificationNativePassBlurSourceExperimentTest {
     }
 
     @Test
-    public void updateBlurBgIsTheActiveMaterialAuthority() throws Exception {
+    public void crossClassUpdateBackgroundIsTheActiveMaterialAuthority() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         assertTrue(hook.contains("ExpandableNotificationRowInjector"));
-        assertTrue(hook.contains("\"updateBlurBg\", int.class, int.class, boolean.class"));
+        assertTrue(hook.contains("getDeclaredMethod(\"updateBackground$1\")"));
         assertTrue(hook.contains("injectorViewField"));
         assertTrue(hook.contains("mBackgroundNormal"));
-        assertTrue(hook.contains("afterBackend.intercept(\n                    updateBlurBg"));
+        assertTrue(hook.contains("afterBackend.intercept(\n                    updateBackground"));
+        assertFalse(hook.contains("\"updateBlurBg\","));
         assertFalse(hook.contains("\"applyElementViewBlend\""));
         assertFalse(hook.contains("MI_BLUR_COMPAT"));
-        assertFalse(hook.contains("TargetClassResolver.require(classLoader, \"com.miui.systemui.util.MiBlurCompat\")"));
         assertFalse(hook.contains("onAttachedToWindow"));
         assertFalse(hook.contains("onReinflated"));
         assertFalse(hook.contains("NotificationGlassRuntime"));
     }
 
     @Test
-    public void hyperLightElementMaterialRunsAfterSystemUiMaterialUpdate() throws Exception {
+    public void hyperLightElementMaterialRunsAfterCompleteSystemUiBackgroundUpdate() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
-        assertTrue(hook.contains("Apply AFTER SystemUI"));
+        assertTrue(hook.contains("SystemUI has completed"));
         assertTrue(controller.contains("applyHyperLightElementMaterial"));
         assertTrue(controller.contains("setMixEffectEnabled"));
         assertTrue(controller.contains("setMiViewBlurMode"));
         assertTrue(controller.contains("setMiBackgroundBlendColors"));
         assertTrue(controller.contains("setMiBloomStroke"));
-        assertTrue(controller.contains("via updateBlurBg"));
+        assertTrue(controller.contains("via updateBackground"));
     }
 
     @Test

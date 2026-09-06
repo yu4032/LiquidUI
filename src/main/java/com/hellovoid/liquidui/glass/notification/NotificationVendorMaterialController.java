@@ -50,16 +50,8 @@ final class NotificationVendorMaterialController {
         this.setMiBloomStroke = setMiBloomStroke;
     }
 
-    void applyHyperLightElementMaterial(View target, Object row, boolean requestedBlur) {
+    void applyHyperLightElementMaterial(View target, Object row) {
         if (target == null) return;
-
-        // updateBlurBg's boolean is the SystemUI branch authority. Do not force material onto
-        // deliberately transparent/focus backgrounds that SystemUI requested without blur.
-        if (!requestedBlur) {
-            log("skip material requestedBlur=false target=" + target.getClass().getName());
-            return;
-        }
-
         boolean light = isLight(target);
         int[] materialColors = light ? LIGHT_MATERIAL_COLORS : DARK_MATERIAL_COLORS;
         int[] materialModes = light ? LIGHT_MATERIAL_MODES : DARK_MATERIAL_MODES;
@@ -69,15 +61,12 @@ final class NotificationVendorMaterialController {
             setMiViewBlurMode.invoke(target, 1);
             setMiBackgroundBlendColors.invoke(
                     target, buildBlendConfig(materialColors, materialModes));
-
             if (setMiBloomStroke != null) {
                 setMiBloomStroke.invoke(target, (Object) scaledBloomStroke(target, light));
             }
-
-            // Keep the SystemUI-installed round authority; only enable clipping against it.
             target.setClipToOutline(true);
 
-            log("applied element-material via updateBlurBg target="
+            log("applied element-material via updateBackground target="
                     + target.getClass().getName()
                     + " row=" + (row == null ? "<none>" : row.getClass().getName())
                     + " theme=" + (light ? "light" : "dark")
@@ -112,18 +101,12 @@ final class NotificationVendorMaterialController {
     private static void log(String message) {
         String formatted = LiquidUiLog.format(TAG + " " + message);
         android.util.Log.i("LiquidUI", formatted);
-        try {
-            Api101Bridge.log(formatted);
-        } catch (Throwable ignored) {
-        }
+        try { Api101Bridge.log(formatted); } catch (Throwable ignored) {}
     }
 
     private static void logError(String message, Throwable error) {
         String formatted = LiquidUiLog.format(TAG + " " + message);
         android.util.Log.e("LiquidUI", formatted, error);
-        try {
-            Api101Bridge.log(formatted, error);
-        } catch (Throwable ignored) {
-        }
+        try { Api101Bridge.log(formatted, error); } catch (Throwable ignored) {}
     }
 }

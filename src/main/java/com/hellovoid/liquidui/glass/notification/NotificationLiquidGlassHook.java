@@ -18,10 +18,11 @@ import java.util.Objects;
 /**
  * Notification material hook derived from the supplied MiuiSystemUI.apk and HyperLight APK.
  *
- * On the target SystemUI build, updateBlurBg(int,int,boolean) is the stable outer notification
- * material boundary. Its internal static calls to NotificationUtil/MiBlurCompat can bypass
- * libxposed interception, so LiquidUI applies the HyperLight element material AFTER updateBlurBg
- * finishes, directly to the exact mBackgroundNormal View chosen by SystemUI.
+ * The target build calls ExpandableNotificationRowInjector#updateBackground$1() from multiple
+ * classes (ExpandableNotificationRow, NotificationContentView, NotificationChildrenContainer and
+ * wrappers). Internal calls inside updateBackground$1/updateBlurBg/NotificationUtil/MiBlurCompat
+ * can bypass libxposed interception, so LiquidUI hooks this cross-class outer boundary AFTER
+ * SystemUI finishes and applies the HyperLight element material to its exact mBackgroundNormal.
  */
 public final class NotificationLiquidGlassHook implements SystemUiHook {
     public static final String HOOK_ID = "notification.liquid-glass";
@@ -59,7 +60,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             return HookInstallResult.unsupported(HOOK_ID, "profile=" + profile.id());
         }
 
-        final Method updateBlurBg;
+        final Method updateBackground;
         final Method setChildrenExpanded;
         final Method setRoundRect;
         final Field injectorViewField;
@@ -72,10 +73,8 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             Class<?> notificationUtil = TargetClassResolver.require(classLoader, NOTIFICATION_UTIL);
             Class<?> childrenContainer = TargetClassResolver.require(classLoader, CHILDREN_CONTAINER);
 
-            // Supplied MiuiSystemUI.apk, ExpandableNotificationRowInjector.java:
-            // public final void updateBlurBg(int, int, boolean)
-            updateBlurBg = accessible(injectorClass.getDeclaredMethod(
-                    "updateBlurBg", int.class, int.class, boolean.class));
+            // Supplied MiuiSystemUI.apk: this is the externally-invoked material update boundary.
+            updateBackground = accessible(injectorClass.getDeclaredMethod("updateBackground$1"));
             injectorViewField = accessible(injectorClass.getDeclaredField("view"));
             backgroundNormalField = accessible(rowClass.getDeclaredField("mBackgroundNormal"));
             setChildrenExpanded = accessible(childrenContainer.getDeclaredMethod(
@@ -100,8 +99,8 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     setMiBloomStroke);
 
             android.util.Log.i("LiquidUI",
-                    "[LUI][NotifGlass][Hook] resolved outer material authority "
-                            + "ExpandableNotificationRowInjector#updateBlurBg(int,int,boolean) "
+                    "[LUI][NotifGlass][Hook] resolved cross-class material authority "
+                            + "ExpandableNotificationRowInjector#updateBackground$1() "
                             + "bloom=" + (setMiBloomStroke != null));
         } catch (ClassNotFoundException | NoSuchMethodException | NoSuchFieldException error) {
             android.util.Log.e("LiquidUI",
@@ -117,14 +116,14 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
 
         List<Runnable> rollbacks = new ArrayList<>();
         try {
-            // Apply AFTER SystemUI has finished setCustomBackground / setRoundRect / view blur /
-            // clear+add blend calls so its internal static implementation cannot overwrite us.
+            // Cross-class callers reach this method through the libxposed bridge. Apply only after
+            // SystemUI has completed setCustomBackground / round / viewBlur / blend mutation.
             rollbacks.add(afterBackend.intercept(
-                    updateBlurBg,
+                    updateBackground,
                     AfterMethodHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> {
                         try {
-                            if (thisObject == null || args.length < 3) return;
+                            if (thisObject == null) return;
                             Object row = injectorViewField.get(thisObject);
                             if (row == null) return;
                             Object background = backgroundNormalField.get(row);
@@ -132,17 +131,14 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
 
                             Object registeredRow = targetRegistry.observeMaterialTarget(target);
                             if (registeredRow == null) return;
-
-                            boolean requestedBlur = args[2] instanceof Boolean && (Boolean) args[2];
-                            materialController.applyHyperLightElementMaterial(
-                                    target, registeredRow, requestedBlur);
+                            materialController.applyHyperLightElementMaterial(target, registeredRow);
                         } catch (Throwable error) {
                             android.util.Log.e("LiquidUI",
-                                    "[LUI][NotifGlass][Hook] updateBlurBg material apply failed", error);
+                                    "[LUI][NotifGlass][Hook] updateBackground material apply failed",
+                                    error);
                         }
                     })::unhook);
 
-            // Keep SystemUI round/expanded dispatch for future Prismal geometry handoff.
             rollbacks.add(beforeBackend.intercept(
                     setChildrenExpanded,
                     BeforeMethodHookBackend.PRIORITY_HIGHEST,
@@ -153,7 +149,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     (thisObject, args) -> targetRegistry.observeRoundRect(args))::unhook);
 
             android.util.Log.i("LiquidUI",
-                    "[LUI][NotifGlass][Hook] installed updateBlurBg material hook");
+                    "[LUI][NotifGlass][Hook] installed updateBackground material hook");
             return HookInstallResult.installed(HOOK_ID);
         } catch (Throwable error) {
             for (int index = rollbacks.size() - 1; index >= 0; index--) {
