@@ -10,7 +10,7 @@ import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 
-/** Applies HyperLight's verified element-material path to SystemUI's exact notification target. */
+/** Applies custom element material to SystemUI's exact notification background target. */
 final class NotificationVendorMaterialController {
     private static final String TAG = "[NotifGlass][Material]";
 
@@ -36,18 +36,40 @@ final class NotificationVendorMaterialController {
 
     private final Method setMixEffectEnabled;
     private final Method setMiViewBlurMode;
+    private final Method clearMiBackgroundBlendColor;
     private final Method setMiBackgroundBlendColors;
     private final Method setMiBloomStroke;
 
     NotificationVendorMaterialController(
             Method setMixEffectEnabled,
             Method setMiViewBlurMode,
+            Method clearMiBackgroundBlendColor,
             Method setMiBackgroundBlendColors,
             Method setMiBloomStroke) {
         this.setMixEffectEnabled = setMixEffectEnabled;
         this.setMiViewBlurMode = setMiViewBlurMode;
+        this.clearMiBackgroundBlendColor = clearMiBackgroundBlendColor;
         this.setMiBackgroundBlendColors = setMiBackgroundBlendColors;
         this.setMiBloomStroke = setMiBloomStroke;
+    }
+
+    /**
+     * Remove SystemUI's default notification element material from mBackgroundNormal.
+     *
+     * Supplied MiuiSystemUI.apk NotificationUtil#applyElementViewBlend only owns two states on this
+     * exact target: setMiViewBlurMode(1) and background blend colors. Container background blur and
+     * pass-window blur are separate authorities and are intentionally not touched here.
+     */
+    void suppressSystemUiElementMaterial(View target) {
+        if (target == null) return;
+        try {
+            setMiViewBlurMode.invoke(target, 0);
+            clearMiBackgroundBlendColor.invoke(target);
+            log("suppressed system-ui element blur target=" + target.getClass().getName());
+        } catch (Throwable error) {
+            logError("system-ui element blur suppression failed target="
+                    + target.getClass().getName(), error);
+        }
     }
 
     void applyHyperLightElementMaterial(View target, Object row) {
