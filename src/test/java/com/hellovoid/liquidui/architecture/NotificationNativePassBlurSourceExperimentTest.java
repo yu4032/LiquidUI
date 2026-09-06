@@ -84,9 +84,10 @@ public class NotificationNativePassBlurSourceExperimentTest {
     }
 
     @Test
-    public void notificationCardUsesVerifiedNativePassBlurTupleAtLowDiagnosticRadius() throws Exception {
+    public void notificationCardUsesVerifiedNativePassBlurTupleAtProductionRadius() throws Exception {
         String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
-        assertTrue(controller.contains("DIAGNOSTIC_PASS_BLUR_RADIUS_DP = 20.0f"));
+        assertTrue(controller.contains("CARD_PASS_BLUR_RADIUS_DP = 24.0f"));
+        assertFalse(controller.contains("DIAGNOSTIC_PASS_BLUR_RADIUS_DP"));
         assertTrue(controller.contains("View.class.getMethod(\"setMiBackgroundBlurMode\", int.class)"));
         assertTrue(controller.contains("View.class.getMethod(\"setMiBackgroundBlurRadius\", int.class)"));
         assertTrue(controller.contains("View.class.getMethod(\"setPassWindowBlurEnabled\", boolean.class)"));
@@ -94,6 +95,14 @@ public class NotificationNativePassBlurSourceExperimentTest {
         assertTrue(controller.contains("setMiBackgroundBlurRadius.invoke(target, radiusPx)"));
         assertTrue(controller.contains("setPassWindowBlurEnabled.invoke(target, true)"));
         assertTrue(controller.contains("enabled card pass-blur"));
+    }
+
+    @Test
+    public void validatedGlassPathIsNotLabelledDiagnostic() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
+        assertFalse(hook.toLowerCase().contains("diagnostic"));
+        assertFalse(controller.toLowerCase().contains("diagnostic"));
     }
 
     @Test
@@ -118,6 +127,5 @@ public class NotificationNativePassBlurSourceExperimentTest {
         assertTrue(registry.contains("useActualHeightGeometry"));
         assertTrue(registry.contains("useFlipRadius"));
         assertFalse(controller.contains("setOutlineProvider"));
-        assertFalse(controller.contains("24.0f"));
     }
 }
