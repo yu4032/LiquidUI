@@ -2,6 +2,8 @@ package com.hellovoid.liquidui.glass.notification;
 
 import android.content.res.Configuration;
 import android.graphics.Point;
+import android.graphics.RenderEffect;
+import android.graphics.RuntimeShader;
 import android.view.View;
 
 import com.hellovoid.liquidui.Api101Bridge;
@@ -16,6 +18,31 @@ final class NotificationVendorMaterialController {
     private static final String TAG = "[NotifGlass][Material]";
     private static final float CARD_PASS_BLUR_RADIUS_DP = 2.0f;
     private static final boolean PROBE_DISABLE_BLOOM_STROKE = true;
+    private static final float PROBE_REFRACTION_AMOUNT_PX = 32.0f;
+    private static final float PROBE_CHROMATIC_ABERRATION_PX = 10.0f;
+
+    private static final String AGSL_REFRACTION_PROBE = """
+            uniform shader content;
+            uniform float2 size;
+            uniform float refractionAmount;
+            uniform float chromaticAberration;
+
+            half4 main(float2 p) {
+                float2 halfSize = max(size * 0.5, float2(1.0));
+                float2 n = (p - halfSize) / halfSize;
+                float radius = length(n);
+                float edge = smoothstep(0.42, 0.98, radius);
+                float2 dir = radius > 0.0001 ? n / radius : float2(0.0);
+                float2 bend = dir * (edge * refractionAmount);
+                float2 tangent = float2(-dir.y, dir.x);
+                float chroma = edge * chromaticAberration;
+
+                half4 base = content.eval(p - bend);
+                half red = content.eval(p - bend + tangent * chroma).r;
+                half blue = content.eval(p - bend - tangent * chroma).b;
+                return half4(red, base.g, blue, base.a);
+            }
+            """;
 
     private static final int[] LIGHT_MATERIAL_COLORS = {
             -428575628, -1722658222, 869388753
@@ -46,6 +73,9 @@ final class NotificationVendorMaterialController {
     private final Method setMiBackgroundBlurRadius;
     private final Method setPassWindowBlurEnabled;
     private final AtomicBoolean passBlurLogged = new AtomicBoolean();
+    private final AtomicBoolean agslLogged = new AtomicBoolean();
+    private RuntimeShader refractionShader;
+    private RenderEffect refractionEffect;
 
     NotificationVendorMaterialController(
             Method setMixEffectEnabled,
@@ -83,6 +113,7 @@ final class NotificationVendorMaterialController {
 
         try {
             enableCardBackdrop(target);
+            applyAgslRefractionProbe(target);
             setMixEffectEnabled.invoke(target, true);
             setMiViewBlurMode.invoke(target, 1);
             setMiBackgroundBlendColors.invoke(
@@ -113,6 +144,39 @@ final class NotificationVendorMaterialController {
                     + " radiusPx=" + radiusPx
                     + " bloomApi=" + (setMiBloomStroke != null)
                     + " bloomApplied=" + (!PROBE_DISABLE_BLOOM_STROKE && setMiBloomStroke != null));
+        }
+    }
+
+    /**
+     * Feasibility probe only: apply an intentionally strong AGSL displacement to this exact View.
+     * If vendor PassBlur is part of the View render input, the sharp backdrop pattern will visibly
+     * bend near the card edge and split into RGB fringes. No screenshot or capture texture is used.
+     */
+    private void applyAgslRefractionProbe(View target) {
+        int width = Math.max(target.getWidth(), target.getMeasuredWidth());
+        int height = Math.max(target.getHeight(), target.getMeasuredHeight());
+        if (width <= 0 || height <= 0) {
+            if (agslLogged.compareAndSet(false, true)) {
+                log("AGSL refraction probe skipped zero-size target=" + target.getClass().getName()
+                        + " width=" + width + " height=" + height);
+            }
+            return;
+        }
+
+        if (refractionShader == null) {
+            refractionShader = new RuntimeShader(AGSL_REFRACTION_PROBE);
+            refractionEffect = RenderEffect.createRuntimeShaderEffect(refractionShader, "content");
+        }
+        refractionShader.setFloatUniform("size", (float) width, (float) height);
+        refractionShader.setFloatUniform("refractionAmount", PROBE_REFRACTION_AMOUNT_PX);
+        refractionShader.setFloatUniform("chromaticAberration", PROBE_CHROMATIC_ABERRATION_PX);
+        target.setRenderEffect(refractionEffect);
+
+        if (agslLogged.compareAndSet(false, true)) {
+            log("applied AGSL refraction probe target=" + target.getClass().getName()
+                    + " size=" + width + "x" + height
+                    + " refractionPx=" + PROBE_REFRACTION_AMOUNT_PX
+                    + " chromaticPx=" + PROBE_CHROMATIC_ABERRATION_PX);
         }
     }
 
