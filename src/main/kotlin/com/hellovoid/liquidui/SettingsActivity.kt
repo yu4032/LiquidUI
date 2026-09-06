@@ -69,6 +69,12 @@ private fun LiquidUiSettings(activity: SettingsActivity) {
                     )
                     BooleanSetting(
                         prefs = prefs,
+                        config = ConfigSchema.NOTIFICATION_GLASS_ENABLED,
+                        title = "通知液态玻璃",
+                        summary = "使用共享 PassBlur → Prismal 管线渲染所有可见通知背景",
+                    )
+                    BooleanSetting(
+                        prefs = prefs,
                         config = ConfigSchema.DIAGNOSTICS_ENABLED,
                         title = "诊断日志",
                         summary = "保留更详细的 target 与 Hook 安装结果",

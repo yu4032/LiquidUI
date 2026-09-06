@@ -18,7 +18,9 @@ public class ConfigSchemaContractTest {
         assertTrue(ConfigSchema.ENABLED.defaultValue());
         assertEquals("diagnostics_enabled", ConfigSchema.DIAGNOSTICS_ENABLED.name());
         assertFalse(ConfigSchema.DIAGNOSTICS_ENABLED.defaultValue());
-        assertEquals(2L, ConfigSchema.all().size());
+        assertEquals("notification_glass_enabled", ConfigSchema.NOTIFICATION_GLASS_ENABLED.name());
+        assertTrue(ConfigSchema.NOTIFICATION_GLASS_ENABLED.defaultValue());
+        assertEquals(3L, ConfigSchema.all().size());
 
         Set<String> names = new HashSet<>();
         for (ConfigKey<?> key : ConfigSchema.all()) {
@@ -59,14 +61,17 @@ public class ConfigSchemaContractTest {
         LiquidUiConfig defaultConfig = LiquidUiConfig.from(defaults);
         assertTrue(defaultConfig.enabled());
         assertFalse(defaultConfig.diagnosticsEnabled());
+        assertTrue(defaultConfig.notificationGlassEnabled());
 
         ConfigReader overrides = new ConfigReader((name, fallback) -> {
             if (name.equals("enabled")) return false;
             if (name.equals("diagnostics_enabled")) return true;
+            if (name.equals("notification_glass_enabled")) return false;
             return fallback;
         });
         LiquidUiConfig config = LiquidUiConfig.from(overrides);
         assertFalse(config.enabled());
         assertTrue(config.diagnosticsEnabled());
+        assertFalse(config.notificationGlassEnabled());
     }
 }
