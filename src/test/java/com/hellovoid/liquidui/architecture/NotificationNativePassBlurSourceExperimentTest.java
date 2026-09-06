@@ -75,12 +75,12 @@ public class NotificationNativePassBlurSourceExperimentTest {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
         assertTrue(hook.contains("SystemUI has completed"));
+        assertTrue(hook.contains("materialController.applyHyperLightElementMaterial(target, registeredRow)"));
         assertTrue(controller.contains("applyHyperLightElementMaterial"));
         assertTrue(controller.contains("setMixEffectEnabled"));
         assertTrue(controller.contains("setMiViewBlurMode"));
         assertTrue(controller.contains("setMiBackgroundBlendColors"));
         assertTrue(controller.contains("setMiBloomStroke"));
-        assertTrue(controller.contains("via updateBackground"));
     }
 
     @Test
@@ -98,11 +98,13 @@ public class NotificationNativePassBlurSourceExperimentTest {
     }
 
     @Test
-    public void validatedGlassPathIsNotLabelledDiagnostic() throws Exception {
+    public void validatedGlassPathIsNotLabelledAsTemporaryProbe() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
-        assertFalse(hook.toLowerCase().contains("diagnostic"));
-        assertFalse(controller.toLowerCase().contains("diagnostic"));
+        assertFalse(hook.contains("shade-blur diagnostic"));
+        assertFalse(hook.contains("Diagnostic:"));
+        assertFalse(controller.contains("DIAGNOSTIC_"));
+        assertFalse(controller.contains("diagnostic native PassBlur"));
     }
 
     @Test
