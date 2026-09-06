@@ -36,14 +36,16 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
-    public void activePathIsCpuCaptureFreeAndShadeEndpointFree() throws Exception {
+    public void activePathIsCpuCaptureFreeAndShadeSurfaceEndpointFree() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         assertFalse(hook.contains("PixelCopy"));
         assertFalse(hook.contains("ImageReader"));
         assertFalse(hook.contains("MediaProjection"));
         assertFalse(hook.contains("ScreenCapture"));
-        assertFalse(hook.contains("NotificationShade"));
         assertFalse(hook.contains("SurfaceControl"));
+        assertFalse(hook.contains("SetPassBlurSurface"));
+        assertTrue(hook.contains("NotificationShadeWindowView"));
+        assertTrue(hook.contains("NotificationShadeBlurPolicy"));
     }
 
     @Test
