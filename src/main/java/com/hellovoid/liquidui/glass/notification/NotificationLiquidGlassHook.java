@@ -16,13 +16,12 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Notification material authority derived from the target MiuiSystemUI.apk.
+ * Notification material authority derived from the supplied MiuiSystemUI.apk and HyperLight APK.
  *
- * Ordinary notification rows are element consumers: ExpandableNotificationRowInjector#updateBlurBg
- * sends mBackgroundNormal through NotificationUtil#applyElementViewBlend, which then calls
- * MiBlurCompat#setMiBackgroundBlendColors(View, int[], float). LiquidUI observes that exact target
- * without inventing a caller-owned shade Surface endpoint or changing background PassBlur
- * ownership. Prismal/OES classes remain dormant until a framework pass-texture handoff is proven.
+ * SystemUI chooses the exact notification element View through
+ * NotificationUtil#applyElementViewBlend -> MiBlurCompat#setMiBackgroundBlendColors(View,int[],float).
+ * HyperLight's non-screen-capture notification route hooks that setter before the original call,
+ * adds HWUI element material state, then lets SystemUI keep its own notification blend/round state.
  */
 public final class NotificationLiquidGlassHook implements SystemUiHook {
     public static final String HOOK_ID = "notification.liquid-glass";
@@ -72,7 +71,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             Class<?> childrenContainer = TargetClassResolver.require(classLoader, CHILDREN_CONTAINER);
             Class<?> miBlurCompat = TargetClassResolver.require(classLoader, MI_BLUR_COMPAT);
 
-            // Verified from the file-library MiuiSystemUI.apk (classes2.dex).
+            // Supplied MiuiSystemUI.apk, classes2.dex.
             applyElementViewBlend = accessible(notificationUtil.getDeclaredMethod(
                     "applyElementViewBlend", Context.class, View.class,
                     boolean.class, int[].class, boolean.class));
@@ -83,11 +82,27 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             setRoundRect = accessible(notificationUtil.getDeclaredMethod(
                     "setRoundRect", View.class, boolean.class, boolean.class));
 
+            // Supplied SystemUI's miuix MiuiBlurUtils/HyperBloomStrokeUtils resolve exactly these
+            // framework View methods for HyperOS material rendering.
+            Method setMixEffectEnabled = View.class.getMethod(
+                    "setMixEffectEnabled", boolean.class);
+            Method setMiViewBlurMode = View.class.getMethod(
+                    "setMiViewBlurMode", int.class);
+            Method setViewBackgroundBlendColors = View.class.getMethod(
+                    "setMiBackgroundBlendColors", ArrayList.class);
+            Method setMiBloomStroke = optionalPublicMethod(
+                    View.class, "setMiBloomStroke", float[].class);
+
             targetRegistry = new NotificationMaterialTargetRegistry(rowClass);
-            materialController = new NotificationVendorMaterialController();
+            materialController = new NotificationVendorMaterialController(
+                    setMixEffectEnabled,
+                    setMiViewBlurMode,
+                    setViewBackgroundBlendColors,
+                    setMiBloomStroke);
             android.util.Log.i("LiquidUI",
-                    "[LUI][NotifGlass][Hook] resolved SystemUI material contract: "
-                            + "applyElementViewBlend -> setMiBackgroundBlendColors(View,int[],float)");
+                    "[LUI][NotifGlass][Hook] resolved verified material contract "
+                            + "MiBlurCompat#setMiBackgroundBlendColors(View,int[],float) "
+                            + "bloom=" + (setMiBloomStroke != null));
         } catch (ClassNotFoundException | NoSuchMethodException error) {
             android.util.Log.e("LiquidUI",
                     "[LUI][NotifGlass][Hook] exact notification material contract missing", error);
@@ -102,7 +117,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
 
         List<Runnable> rollbacks = new ArrayList<>();
         try {
-            // Scope only MiBlurCompat calls made by SystemUI notification material dispatch.
+            // HyperLight authority scope: only setter calls originating inside notification blend.
             rollbacks.add(beforeBackend.intercept(
                     applyElementViewBlend,
                     BeforeMethodHookBackend.PRIORITY_HIGHEST,
@@ -112,23 +127,23 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     AfterMethodHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> exitNotificationBlend())::unhook);
 
-            // SystemUI has already established the native element consumer state when this after
-            // callback runs. Observe the exact View and preserve that state unchanged.
-            rollbacks.add(afterBackend.intercept(
+            // HyperLight NotificationBlurHook uses a BEFORE hook here. Apply only element material;
+            // the original SystemUI setter must still run and remains blend-color authority.
+            rollbacks.add(beforeBackend.intercept(
                     setMiBackgroundBlendColors,
-                    AfterMethodHookBackend.PRIORITY_HIGHEST,
+                    BeforeMethodHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> {
                         if (!inNotificationBlend()) return;
                         if (args.length < 3 || !(args[0] instanceof View target)
                                 || !(args[1] instanceof int[] colors)
                                 || !(args[2] instanceof Number ratio)) return;
                         Object row = targetRegistry.observeMaterialTarget(target);
-                        materialController.observeSystemMaterial(
+                        materialController.applyHyperLightElementMaterial(
                                 target, row, colors, ratio.floatValue());
                     })::unhook);
 
-            // Final round-state authority is SystemUI's own setRoundRect dispatch. Keep the group
-            // expansion state alongside it for later Prismal geometry handoff.
+            // Keep SystemUI's own round/expanded state as geometry authority. Unlike HyperLight we
+            // intentionally do not install a hard-coded 24dp OutlineProvider on this target.
             rollbacks.add(beforeBackend.intercept(
                     setChildrenExpanded,
                     BeforeMethodHookBackend.PRIORITY_HIGHEST,
@@ -165,6 +180,15 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
 
     private boolean inNotificationBlend() {
         return notificationBlendDepth.get() > 0;
+    }
+
+    private static Method optionalPublicMethod(
+            Class<?> owner, String name, Class<?>... parameterTypes) {
+        try {
+            return owner.getMethod(name, parameterTypes);
+        } catch (NoSuchMethodException ignored) {
+            return null;
+        }
     }
 
     private static <T extends java.lang.reflect.AccessibleObject> T accessible(T value) {
