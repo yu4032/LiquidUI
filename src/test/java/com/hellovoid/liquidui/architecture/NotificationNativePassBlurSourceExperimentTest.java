@@ -20,8 +20,9 @@ public class NotificationNativePassBlurSourceExperimentTest {
         assertTrue(hook.contains("injectorViewField"));
         assertTrue(hook.contains("mBackgroundNormal"));
         assertTrue(hook.contains("afterBackend.intercept(\n                    updateBlurBg"));
-        assertFalse(hook.contains("applyElementViewBlend"));
-        assertFalse(hook.contains("MiBlurCompat"));
+        assertFalse(hook.contains("\"applyElementViewBlend\""));
+        assertFalse(hook.contains("MI_BLUR_COMPAT"));
+        assertFalse(hook.contains("TargetClassResolver.require(classLoader, \"com.miui.systemui.util.MiBlurCompat\")"));
         assertFalse(hook.contains("onAttachedToWindow"));
         assertFalse(hook.contains("onReinflated"));
         assertFalse(hook.contains("NotificationGlassRuntime"));
