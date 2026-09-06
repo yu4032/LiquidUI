@@ -13,7 +13,8 @@ import java.lang.reflect.Method;
 /** Experimental observer endpoint attached to HyperOS's own NotificationShade PassBlur root. */
 final class SystemUiPassBlurBridge {
     private static final String TAG = "[NotifGlass][PBGL]";
-    private static final float SCALE = 1.0f;
+    // Exact supplied HyperOS runtime and libhyper_surface_context use quarter-scale PassBlur.
+    private static final float SCALE = 0.25f;
 
     static final class Binding {
         final SurfaceControl hostRootSurface;
@@ -47,6 +48,20 @@ final class SystemUiPassBlurBridge {
     }
 
     private SystemUiPassBlurBridge() {}
+
+    /** Resolve the current ViewRoot SurfaceControl so callers never own stale root state. */
+    static Binding bind(View materialHost,
+                        Surface producerSurface,
+                        long endpointGeneration) {
+        if (materialHost == null || producerSurface == null) return null;
+        try {
+            SurfaceControl rootSurface = resolveRootSurface(materialHost);
+            return bind(materialHost, rootSurface, producerSurface, endpointGeneration);
+        } catch (Throwable error) {
+            log("bind unavailable root resolution " + error);
+            return null;
+        }
+    }
 
     static Binding bind(View materialHost,
                         SurfaceControl rootSurface,
@@ -97,6 +112,7 @@ final class SystemUiPassBlurBridge {
                     + " surfaceSeq=" + binding.surfaceSequenceId
                     + " viewRoot=" + binding.viewRootIdentity
                     + " endpointGen=" + endpointGeneration
+                    + " scale=" + SCALE
                     + " sourceAuthority=NotificationShadeViewRoot-native");
             return binding;
         } catch (Throwable error) {
@@ -117,7 +133,8 @@ final class SystemUiPassBlurBridge {
             transaction.apply();
             binding.updatesEnabled = enabled;
             log("updates=" + enabled + " root=" + binding.hostRootName
-                    + " endpointGen=" + binding.endpointGeneration);
+                    + " endpointGen=" + binding.endpointGeneration
+                    + " scale=" + SCALE);
         } catch (Throwable error) {
             log("update toggle failed " + error);
         }
@@ -145,6 +162,15 @@ final class SystemUiPassBlurBridge {
     private static void setPassBlurSurfaceToNull(
             Binding binding, SurfaceControl.Transaction transaction) throws Exception {
         binding.setPassBlurSurface.invoke(transaction, binding.hostRootSurface, null);
+    }
+
+    static SurfaceControl resolveRootSurface(View view) throws Exception {
+        Object viewRoot = getViewRootImpl(view);
+        if (viewRoot == null) return null;
+        Method getSurfaceControl = viewRoot.getClass().getDeclaredMethod("getSurfaceControl");
+        getSurfaceControl.setAccessible(true);
+        Object value = getSurfaceControl.invoke(viewRoot);
+        return value instanceof SurfaceControl ? (SurfaceControl) value : null;
     }
 
     static int readSurfaceSequenceId(Object viewRoot) {
@@ -220,10 +246,8 @@ final class SystemUiPassBlurBridge {
     }
 
     private static void log(String message) {
-        try {
-            Api101Bridge.log(LiquidUiLog.format(TAG + " " + message));
-        } catch (Throwable ignored) {
-            android.util.Log.i("LiquidUI", "[LUI]" + TAG + " " + message);
-        }
+        String formatted = LiquidUiLog.format(TAG + " " + message);
+        android.util.Log.i("LiquidUI", formatted);
+        try { Api101Bridge.log(formatted); } catch (Throwable ignored) {}
     }
 }
