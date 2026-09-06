@@ -31,9 +31,6 @@ public class NotificationNativePassBlurSourceExperimentTest {
     @Test
     public void injectorAndBackgroundFieldsAreResolvedFromSuperclassContracts() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
-        // Supplied MiuiSystemUI.apk:
-        // ExpandableViewInjector declares public final `view`.
-        // ActivatableNotificationView declares public `mBackgroundNormal`.
         assertTrue(hook.contains("injectorClass.getField(\"view\")"));
         assertTrue(hook.contains("rowClass.getField(\"mBackgroundNormal\")"));
         assertFalse(hook.contains("injectorClass.getDeclaredField(\"view\")"));
@@ -51,6 +48,26 @@ public class NotificationNativePassBlurSourceExperimentTest {
         assertTrue(hook.contains("materialController.suppressSystemUiElementMaterial(target)"));
         assertTrue(hook.indexOf("materialController.suppressSystemUiElementMaterial(target)")
                 < hook.indexOf("materialController.applyHyperLightElementMaterial(target, registeredRow)"));
+    }
+
+    @Test
+    public void shadeBackdropBlurIsZeroedWhileNotificationGlassIsEnabled() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        String module = read("src/main/java/com/hellovoid/liquidui/ModuleMain.java");
+        String policy = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationShadeBlurPolicy.java");
+
+        assertTrue(hook.contains("ArgumentRewriteHookBackend"));
+        assertTrue(hook.contains("ShadeBlendBlurController$BlurProvider"));
+        assertTrue(hook.contains("ShadeBlendBlurController$BlendBackground"));
+        assertTrue(hook.contains("NotificationShadeWindowView"));
+        assertTrue(hook.contains("BlurUtils"));
+        assertTrue(hook.contains("NotificationShadeBlurPolicy.blurRatio(true"));
+        assertTrue(hook.contains("NotificationShadeBlurPolicy.blurRadius(true"));
+        assertTrue(hook.contains("NotificationShadeBlurPolicy.enabled(true"));
+        assertTrue(module.contains("Api101ArgumentRewriteHookBackend"));
+        assertTrue(policy.contains("return glassActive ? 0f : requested"));
+        assertTrue(policy.contains("return glassActive ? 0 : requested"));
+        assertTrue(policy.contains("return glassActive ? false : requested"));
     }
 
     @Test
@@ -81,7 +98,7 @@ public class NotificationNativePassBlurSourceExperimentTest {
         assertFalse(hook.contains("SystemUiPassBlurBridge"));
         assertFalse(hook.contains("NotificationPassBlurTextureView"));
         assertFalse(hook.contains("SetPassBlurSurface"));
-        assertFalse(hook.contains("NotificationShadeWindowView"));
+        assertTrue(hook.contains("NotificationShadeWindowView"));
     }
 
     @Test
