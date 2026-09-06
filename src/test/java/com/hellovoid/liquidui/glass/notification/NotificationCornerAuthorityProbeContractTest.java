@@ -16,6 +16,8 @@ public class NotificationCornerAuthorityProbeContractTest {
         String probe = Files.readString(probePath);
         String collector = Files.readString(Path.of(
                 "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java"));
+        String session = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java"));
         String renderer = Files.readString(Path.of(
                 "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java"));
 
@@ -44,7 +46,8 @@ public class NotificationCornerAuthorityProbeContractTest {
         assertTrue(probe.contains("coverage="));
 
         assertTrue(collector.contains("NotificationCornerAuthorityProbe.observeNode"));
-        assertTrue(renderer.contains("NotificationCornerAuthorityProbe.observeMapping"));
+        assertTrue(session.contains("NotificationCornerAuthorityProbe.observeMapping(renderer)"));
+        assertFalse(renderer.contains("NotificationCornerAuthorityProbe.observeMapping"));
 
         assertFalse(probe.contains("setClipChildren"));
         assertFalse(probe.contains("setClipToPadding"));
@@ -60,13 +63,15 @@ public class NotificationCornerAuthorityProbeContractTest {
     public void cornerProbeIsBoundedAndDoesNotChangeRendererMappingMath() throws Exception {
         String probe = Files.readString(Path.of(
                 "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationCornerAuthorityProbe.java"));
+        String session = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java"));
         String renderer = Files.readString(Path.of(
                 "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java"));
 
         assertTrue(probe.contains("WeakHashMap"));
         assertTrue(probe.contains("MAX_PARENT_DEPTH = 8"));
         assertTrue(renderer.contains("Miuix307BackdropMapping.compute"));
-        assertTrue(renderer.contains("NotificationCornerAuthorityProbe.observeMapping"));
+        assertTrue(session.contains("NotificationCornerAuthorityProbe.observeMapping(renderer)"));
         assertFalse(renderer.contains("CORNER_PROBE_RADIUS_OVERRIDE"));
         assertFalse(renderer.contains("CORNER_PROBE_OVERSCAN_OVERRIDE"));
     }
