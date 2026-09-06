@@ -30,14 +30,32 @@ jobs:
               raise SystemExit('expected exactly one PURE_MAIN insertion point')
           path.write_text(text.replace(old, new))
           PY
-      - name: Diagnose exact failing contract lines
+      - name: Fix architecture contract boundaries
         run: |
-          echo '--- failing architecture test lines ---'
-          nl -ba src/test/java/com/hellovoid/liquidui/architecture/NotificationSharedGlassArchitectureTest.java | sed -n '190,315p'
-          echo '--- shade authority hook install ---'
-          nl -ba src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java | sed -n '145,215p'
-          echo '--- source/content callbacks ---'
-          nl -ba src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java | sed -n '175,220p'
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('src/test/java/com/hellovoid/liquidui/architecture/NotificationSharedGlassArchitectureTest.java')
+          text = path.read_text()
+          old_vendor = '''        int vendorChange = session.indexOf("private void onVendorPassBlurChanged");
+          int sourceChange = session.indexOf("private void onPassBlurSourceChanged", vendorChange);
+          assertTrue(vendorChange >= 0 && sourceChange > vendorChange);
+          String vendorBody = session.substring(vendorChange, sourceChange);
+'''
+          new_vendor = '''        int vendorChange = session.indexOf("private void onVendorPassBlurChanged");
+          int contentChange = session.indexOf("private void onContentAuthorityChanged", vendorChange);
+          int sourceChange = session.indexOf("private void onPassBlurSourceChanged", contentChange);
+          assertTrue(vendorChange >= 0 && contentChange > vendorChange && sourceChange > contentChange);
+          String vendorBody = session.substring(vendorChange, contentChange);
+'''
+          old_apply = '        assertTrue(hook.contains("getDeclaredMethod(\\"apply\\", shadeWindowStateClass)"));\n'
+          new_apply = '        assertTrue(hook.contains("\\"apply\\", shadeWindowStateClass"));\n'
+          if text.count(old_vendor) != 1:
+              raise SystemExit('expected exactly one vendor contract block')
+          if text.count(old_apply) != 1:
+              raise SystemExit('expected exactly one shade apply contract assertion')
+          text = text.replace(old_vendor, new_vendor).replace(old_apply, new_apply)
+          path.write_text(text)
+          PY
       - name: Run contracts
         run: ./scripts/test-contracts.sh
       - name: Run Android build
