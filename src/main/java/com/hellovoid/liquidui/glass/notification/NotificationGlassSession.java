@@ -26,6 +26,8 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
     private final NotificationPassBlurAuthorityState.Listener authorityListener;
     private final NotificationPassBlurSourceState sourceState;
     private final NotificationPassBlurSourceState.Listener sourceListener;
+    private final NotificationPassBlurContentAuthorityState contentAuthorityState;
+    private final NotificationPassBlurContentAuthorityState.Listener contentAuthorityListener;
     private final int displayId;
     private final NotificationGlassSceneState sceneState = new NotificationGlassSceneState();
     private final WeakHashMap<Object, Boolean> rows = new WeakHashMap<>();
@@ -48,7 +50,8 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
             NotificationVendorMaterialController materialController,
             NotificationGlassActivityState activityState,
             NotificationPassBlurAuthorityState authorityState,
-            NotificationPassBlurSourceState sourceState) {
+            NotificationPassBlurSourceState sourceState,
+            NotificationPassBlurContentAuthorityState contentAuthorityState) {
         this.stackRef = new WeakReference<>(stack);
         this.parentRef = new WeakReference<>(parent);
         this.collector = collector;
@@ -57,8 +60,10 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         this.authorityState = authorityState;
         this.authorityListener = this::onVendorPassBlurChanged;
         this.sourceState = sourceState;
+        this.contentAuthorityState = contentAuthorityState;
         this.displayId = stack.getDisplay() != null ? stack.getDisplay().getDisplayId() : 0;
         this.sourceListener = this::onPassBlurSourceChanged;
+        this.contentAuthorityListener = this::onContentAuthorityChanged;
 
         host = new NotificationGlassHostView(parent.getContext());
         host.setId(View.generateViewId());
@@ -71,13 +76,14 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
 
         renderer = new NotificationPassBlurTextureView(
                 parent.getContext(), stack, sceneState, this, authorityState.isEnabled(),
-                sourceState, displayId);
-        renderer.setVisibility(View.INVISIBLE);
+                sourceState, contentAuthorityState, displayId);
+        renderer.setAlpha(0f);
         host.addView(renderer, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
         authorityState.addListener(authorityListener);
         sourceState.addListener(displayId, sourceListener);
+        contentAuthorityState.addListener(contentAuthorityListener);
         installPreDraw(stack);
         log("created stack=" + stack.getClass().getName()
                 + " parent=" + parent.getClass().getName()
@@ -131,9 +137,9 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
     }
 
     @Override public void onFirstFrameActive() {
-        if (shutdown || active || !authorityState.isEnabled()) return;
+        if (shutdown || active) return;
         active = true;
-        renderer.setVisibility(View.VISIBLE);
+        renderer.setAlpha(1f);
         setShadeBlurSuppression(!rows.isEmpty());
         log("first GPU frame active nodes=" + lastNodes.size());
         suppressVendorMaterial();
@@ -156,6 +162,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         setShadeBlurSuppression(false);
         authorityState.removeListener(authorityListener);
         sourceState.removeListener(sourceListener);
+        contentAuthorityState.removeListener(contentAuthorityListener);
         removePreDraw();
         materialController.restoreAll();
         sceneState.clear();
@@ -172,17 +179,23 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
 
     private void onVendorPassBlurChanged(boolean enabled) {
         if (shutdown) return;
-        log("HyperOS notifPassBlur=" + enabled);
-        if (!enabled) {
+        log("HyperOS notifPassBlur=" + enabled + " (diagnostic only)");
+        renderer.setVendorPassBlurEnabled(enabled, "hyperos-notifPassBlur");
+    }
+
+    private void onContentAuthorityChanged(
+            NotificationPassBlurContentAuthorityState.Snapshot snapshot) {
+        if (shutdown) return;
+        log("content authority keyguardShowing=" + snapshot.keyguardShowing()
+                + " excludeLockWallpaper=" + snapshot.excludeLockWallpaper()
+                + " generation=" + snapshot.generation());
+        if (active) {
             active = false;
-            renderer.setVisibility(View.INVISIBLE);
+            renderer.setAlpha(0f);
             setShadeBlurSuppression(false);
             materialController.restoreAll();
-            renderer.setVendorPassBlurEnabled(false, "hyperos-notifPassBlur");
-            return;
         }
-        renderer.setVendorPassBlurEnabled(true, "hyperos-notifPassBlur");
-        refreshScene();
+        renderer.onPassBlurContentAuthorityChanged(snapshot);
     }
 
     private void onPassBlurSourceChanged(NotificationPassBlurSourceState.Snapshot snapshot) {
@@ -191,12 +204,12 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
                 + " generation=" + snapshot.generation());
         if (!snapshot.available()) {
             active = false;
-            renderer.setVisibility(View.INVISIBLE);
+            renderer.setAlpha(0f);
             setShadeBlurSuppression(false);
             materialController.restoreAll();
         }
         renderer.onPassBlurSourceChanged("root-task-display-area");
-        if (snapshot.available() && authorityState.isEnabled()) refreshScene();
+        if (snapshot.available()) refreshScene();
     }
 
     private void installPreDraw(View stack) {

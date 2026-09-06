@@ -174,6 +174,7 @@ final class NotificationPassBlurTextureView extends TextureView
 
     private final WeakReference<View> materialHostRef;
     private final NotificationPassBlurSourceState sourceState;
+    private final NotificationPassBlurContentAuthorityState contentAuthorityState;
     private final int displayId;
     private final NotificationGlassSceneState sceneState;
     private final NotificationGlassCompositor compositor;
@@ -185,6 +186,8 @@ final class NotificationPassBlurTextureView extends TextureView
     private final AtomicBoolean frameAvailable = new AtomicBoolean(false);
     private final ZeroCopyProducerRecoveryState producerRecovery =
             new ZeroCopyProducerRecoveryState();
+    private final ProducerRecreateReadinessState producerRecreateReadiness =
+            new ProducerRecreateReadinessState();
     private final float[] textureMatrix = new float[16];
 
     private volatile boolean shuttingDown;
@@ -262,6 +265,7 @@ final class NotificationPassBlurTextureView extends TextureView
     private long powerWindowStartedMs = SystemClock.uptimeMillis();
     private ViewTreeObserver preDrawObserver;
     private ViewTreeObserver.OnPreDrawListener preDrawListener;
+    private String deferredProducerRecreateReason;
 
     NotificationPassBlurTextureView(
             Context context,
@@ -270,6 +274,7 @@ final class NotificationPassBlurTextureView extends TextureView
             ActivationListener activationListener,
             boolean vendorPassBlurEnabled,
             NotificationPassBlurSourceState sourceState,
+            NotificationPassBlurContentAuthorityState contentAuthorityState,
             int displayId) {
         super(context);
         materialHostRef = new WeakReference<>(materialHost);
@@ -278,6 +283,7 @@ final class NotificationPassBlurTextureView extends TextureView
         this.activationListener = activationListener;
         this.vendorPassBlurEnabled = vendorPassBlurEnabled;
         this.sourceState = sourceState;
+        this.contentAuthorityState = contentAuthorityState;
         this.displayId = displayId;
         portablePrismalParams = NotificationGlassMaterial.defaults(
                 context.getResources().getDisplayMetrics().density);
@@ -326,11 +332,11 @@ final class NotificationPassBlurTextureView extends TextureView
         renderHandler.post(() -> {
             SystemUiPassBlurBridge.Binding current = binding;
             if (shuttingDown || current == null || !current.bound) return;
-            boolean effective = enabled && vendorPassBlurEnabled;
+            boolean effective = enabled;
             if (effective) SystemUiPassBlurBridge.resumeUpdates(current);
             else SystemUiPassBlurBridge.pauseUpdates(current);
             log(" producer updates=" + effective + " rowGate=" + enabled
-                    + " vendorGate=" + vendorPassBlurEnabled + " reason=" + reason);
+                    + " vendorObserved=" + vendorPassBlurEnabled + " reason=" + reason);
         });
     }
 
@@ -338,11 +344,9 @@ final class NotificationPassBlurTextureView extends TextureView
         if (shuttingDown) return;
         boolean changed = vendorPassBlurEnabled != enabled;
         vendorPassBlurEnabled = enabled;
-        if (!changed) return;
-        if (enabled) {
-            renderHandler.post(() -> activateVendorPassBlurAuthority(reason));
-        } else {
-            renderHandler.post(() -> retireVendorPassBlurAuthority(reason));
+        if (changed) {
+            log(" vendor PassBlur observed=" + enabled + " reason=" + reason
+                    + " (diagnostic only; LiquidUI producer is source-driven)");
         }
     }
 
@@ -368,48 +372,22 @@ final class NotificationPassBlurTextureView extends TextureView
                 return;
             }
             ZeroCopyProducerRecoveryState.Decision recovery = producerRecovery.onRebindRequested();
-            if (recovery.accepted && recovery.recreateProducer) recreateInputProducer("source-change:" + reason);
-            if (vendorPassBlurEnabled) post(() -> bindProducerWhenReady(0));
+            if (recovery.accepted && recovery.recreateProducer) {
+                requestProducerRecreate("source-change:" + reason);
+            }
         });
     }
 
-    private void activateVendorPassBlurAuthority(String reason) {
-        if (shuttingDown || !vendorPassBlurEnabled) return;
+    void onPassBlurContentAuthorityChanged(
+            NotificationPassBlurContentAuthorityState.Snapshot snapshot) {
+        if (shuttingDown || snapshot == null) return;
         SystemUiPassBlurBridge.Binding current = binding;
-        if (current != null && current.bound) {
-            if (producerUpdatesEnabled) SystemUiPassBlurBridge.resumeUpdates(current);
-            else SystemUiPassBlurBridge.pauseUpdates(current);
-            return;
-        }
-        if (inputProducerSurface == null || inputSurfaceTexture == null) {
-            log(" vendor PassBlur open; producer not ready reason=" + reason);
-            return;
-        }
-        log(" vendor PassBlur open; request bind reason=" + reason);
-        post(() -> bindProducerWhenReady(0));
-    }
-
-    private void retireVendorPassBlurAuthority(String reason) {
-        if (shuttingDown) return;
-        SystemUiPassBlurBridge.Binding current = binding;
-        binding = null;
-        if (current != null) SystemUiPassBlurBridge.unbind(current);
-        gpuBackdropActive = false;
-        frameAvailable.set(false);
-        producerRecovery.onGeometryInvalidated();
-        firstFrameLogged = false;
-        firstDrawLogged = false;
-        firstMatrixLogged = false;
-        stageBDiagnosticsLogged = false;
-        prismalMappingLogged = false;
-        resetBoundGeometry();
-        if (current != null) {
-            ZeroCopyProducerRecoveryState.Decision recovery = producerRecovery.onRebindRequested();
-            if (recovery.accepted && recovery.recreateProducer) {
-                recreateInputProducer("vendor-authority-off:" + reason);
-            }
-        }
-        log(" vendor PassBlur closed; sampling unbound reason=" + reason);
+        log(" content authority changed keyguardShowing=" + snapshot.keyguardShowing()
+                + " excludeLockWallpaper=" + snapshot.excludeLockWallpaper()
+                + " generation=" + snapshot.generation());
+        if (current == null || !current.bound) return;
+        if (current.contentGeneration == snapshot.generation()) return;
+        rebindProducer("content-authority");
     }
 
     void rebindProducer(String reason) {
@@ -432,8 +410,47 @@ final class NotificationPassBlurTextureView extends TextureView
         resetBoundGeometry();
         log(" producer rebind requested reason=" + reason);
         if (recovery.recreateProducer) {
-            renderHandler.post(() -> recreateInputProducer(reason));
+            renderHandler.post(() -> requestProducerRecreate(reason));
         }
+    }
+
+    private boolean hasLiveOutputEgl() {
+        return eglDisplay != EGL14.EGL_NO_DISPLAY
+                && eglContext != EGL14.EGL_NO_CONTEXT
+                && eglWindowSurface != EGL14.EGL_NO_SURFACE;
+    }
+
+    private void requestProducerRecreate(String reason) {
+        if (shuttingDown) return;
+        ProducerRecreateReadinessState.Action action = producerRecreateReadiness.requestRecreate();
+        if (action == ProducerRecreateReadinessState.Action.RUN_NOW && !hasLiveOutputEgl()) {
+            boolean stateReady = producerRecreateReadiness.isOutputReady();
+            producerRecreateReadiness.onOutputUnavailable();
+            action = producerRecreateReadiness.requestRecreate();
+            log(" READINESS_MISMATCH stateReady=" + stateReady
+                    + " actualEgl=false; forced defer reason=" + reason);
+        }
+        if (action == ProducerRecreateReadinessState.Action.RUN_NOW) {
+            recreateInputProducer(reason);
+            return;
+        }
+        deferredProducerRecreateReason = reason;
+        log(" producer recreate deferred until output EGL ready reason=" + reason);
+    }
+
+    private void drainDeferredProducerRecreate() {
+        String reason = deferredProducerRecreateReason;
+        deferredProducerRecreateReason = null;
+        if (reason == null) reason = "output-egl-ready";
+        if (!hasLiveOutputEgl()) {
+            producerRecreateReadiness.onOutputUnavailable();
+            producerRecreateReadiness.requestRecreate();
+            deferredProducerRecreateReason = reason;
+            log(" producer recreate resume postponed; output EGL lost reason=" + reason);
+            return;
+        }
+        log(" producer recreate resumed after output EGL ready reason=" + reason);
+        recreateInputProducer(reason);
     }
 
     /**
@@ -465,7 +482,7 @@ final class NotificationPassBlurTextureView extends TextureView
             log(" input producer recreated reason=" + reason);
             ZeroCopyProducerRecoveryState.Decision recovery =
                     producerRecovery.onProducerRecreated();
-            if (recovery.requestBind && vendorPassBlurEnabled) {
+            if (recovery.requestBind) {
                 post(() -> bindProducerWhenReady(0));
             }
         } catch (Throwable error) {
@@ -478,6 +495,8 @@ final class NotificationPassBlurTextureView extends TextureView
         if (shuttingDown) return;
         shuttingDown = true;
         producerRecovery.onShutdown();
+        producerRecreateReadiness.onOutputUnavailable();
+        deferredProducerRecreateReason = null;
         gpuBackdropActive = false;
         removeGeometryObserver();
 
@@ -509,6 +528,7 @@ final class NotificationPassBlurTextureView extends TextureView
     @Override
     public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
         if (shuttingDown || surface == null) return;
+        producerRecreateReadiness.onOutputUnavailable();
         outputSurfaceTexture = surface;
         outputWidth = Math.max(1, width);
         outputHeight = Math.max(1, height);
@@ -539,6 +559,7 @@ final class NotificationPassBlurTextureView extends TextureView
 
     @Override
     public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+        producerRecreateReadiness.onOutputUnavailable();
         if (surface == outputSurfaceTexture) outputSurfaceTexture = null;
         Surface stale = outputWindowSurface;
         outputWindowSurface = null;
@@ -554,6 +575,7 @@ final class NotificationPassBlurTextureView extends TextureView
     }
 
     private void attachOutputWindow(Surface stale, Surface window, int width, int height) {
+        producerRecreateReadiness.onOutputUnavailable();
         if (shuttingDown) {
             if (window != null) window.release();
             return;
@@ -586,6 +608,11 @@ final class NotificationPassBlurTextureView extends TextureView
                 || eglWindowSurface == EGL14.EGL_NO_SURFACE) return;
         try {
             makeCurrent();
+            ProducerRecreateReadinessState.Action readiness =
+                    producerRecreateReadiness.onOutputReady();
+            if (readiness == ProducerRecreateReadinessState.Action.RUN_NOW) {
+                drainDeferredProducerRecreate();
+            }
             ensureGlResources();
             ensureFboSize(Math.max(1, width), Math.max(1, height));
             drawLatestFrame(false);
@@ -662,27 +689,24 @@ final class NotificationPassBlurTextureView extends TextureView
     }
 
     private void ensureGlResources() {
-        if (normalizeProgram != 0 && compositeProgram != 0 && prismalRenderer != null
-                && oesTexture != 0 && inputSurfaceTexture != null && inputProducerSurface != null) {
-            return;
+        if (normalizeProgram == 0) {
+            normalizeProgram = createProgram(
+                    Miuix307PassBlurShaders.QUAD_VERTEX,
+                    Miuix307PassBlurShaders.OES_NORMALIZE_FRAGMENT);
         }
-
-        normalizeProgram = createProgram(
-                Miuix307PassBlurShaders.QUAD_VERTEX,
-                Miuix307PassBlurShaders.OES_NORMALIZE_FRAGMENT);
-        compositeProgram = createProgram(
-                Miuix307PassBlurShaders.QUAD_VERTEX,
-                Miuix307PrismalCompositeShaders.FRAGMENT);
+        if (compositeProgram == 0) {
+            compositeProgram = createProgram(
+                    Miuix307PassBlurShaders.QUAD_VERTEX,
+                    Miuix307PrismalCompositeShaders.FRAGMENT);
+        }
         if (normalizeProgram == 0 || compositeProgram == 0) {
             throw new IllegalStateException("Prismal adapter program creation failed");
         }
         if (prismalRenderer == null) prismalRenderer = new PrismalRenderer();
 
-        createInputProducer();
-        if (vendorPassBlurEnabled) {
+        if (oesTexture == 0 || inputSurfaceTexture == null || inputProducerSurface == null) {
+            createInputProducer();
             post(() -> bindProducerWhenReady(0));
-        } else {
-            log(" vendor PassBlur closed; initial producer remains unbound");
         }
     }
 
@@ -958,7 +982,7 @@ final class NotificationPassBlurTextureView extends TextureView
     }
 
     private void bindProducerWhenReady(int attempt) {
-        if (shuttingDown || binding != null || !vendorPassBlurEnabled) return;
+        if (shuttingDown || binding != null) return;
         View materialHost = materialHostRef.get();
         Surface producer = inputProducerSurface;
         SurfaceTexture input = inputSurfaceTexture;
@@ -1002,7 +1026,7 @@ final class NotificationPassBlurTextureView extends TextureView
     private void finishBindProducer(ProducerGeometry geometry, SurfaceControl sourceSurface,
                                     long sourceGeneration, Surface producer,
                                     long endpointGeneration, int attempt) {
-        if (shuttingDown || binding != null || !vendorPassBlurEnabled
+        if (shuttingDown || binding != null
                 || producer != inputProducerSurface
                 || endpointGeneration != inputProducerGeneration) return;
         View materialHost = materialHostRef.get();
@@ -1020,8 +1044,11 @@ final class NotificationPassBlurTextureView extends TextureView
             return;
         }
 
+        NotificationPassBlurContentAuthorityState.Snapshot contentSnapshot =
+                contentAuthorityState.snapshot();
         SystemUiPassBlurBridge.Binding next = SystemUiPassBlurBridge.bind(
-                materialHost, sourceSurface, sourceGeneration, producer, endpointGeneration);
+                materialHost, sourceSurface, sourceGeneration, producer, endpointGeneration,
+                contentSnapshot);
         if (next == null) {
             retryBind(attempt, "framework bind returned null");
             return;
@@ -1051,7 +1078,7 @@ final class NotificationPassBlurTextureView extends TextureView
     }
 
     private void retryBind(int attempt, String reason) {
-        if (shuttingDown || binding != null || !vendorPassBlurEnabled) return;
+        if (shuttingDown || binding != null) return;
         if (attempt >= MAX_BIND_RETRY_FRAMES) {
             producerRecovery.onBindExhausted();
             IllegalStateException failure = new IllegalStateException(
@@ -1098,6 +1125,12 @@ final class NotificationPassBlurTextureView extends TextureView
         ProducerGeometry geometry = readSurfaceGeometry(materialHost);
         if (geometry == null || geometry.rootSurface == null || !geometry.rootSurface.isValid()) return;
         NotificationPassBlurSourceState.Snapshot sourceSnapshot = sourceState.snapshot(displayId);
+        NotificationPassBlurContentAuthorityState.Snapshot contentSnapshot =
+                contentAuthorityState.snapshot();
+        if (binding.contentGeneration != contentSnapshot.generation()) {
+            rebindProducer("content-authority-generation-changed");
+            return;
+        }
         if (!binding.hostRootSurface.isValid()
                 || !isSameSurface(binding.hostRootSurface, geometry.rootSurface)) {
             rebindProducer("host-root-changed");
