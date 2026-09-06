@@ -18,6 +18,10 @@ public class FrameworkPassBlurViewConsumerExperimentContractTest {
                 "src/main/java/com/hellovoid/liquidui/ModuleMain.java"));
 
         assertTrue(hook.contains("com.miui.systemui.shade.ShadeBackgroundView"));
+        assertTrue(hook.contains(
+                "com.android.systemui.statusbar.notification.stack.ui.view.SharedNotificationContainer"));
+        assertTrue(hook.contains("shadeBackgroundClass.isInstance(thisObject)"));
+        assertTrue(hook.contains("sharedNotificationContainerClass.isInstance(thisObject)"));
         assertTrue(hook.contains("setTextureAvailable"));
         assertTrue(hook.contains("[NotifGlass][FrameworkPB][Consumer]"));
         assertTrue(hook.contains("available="));
