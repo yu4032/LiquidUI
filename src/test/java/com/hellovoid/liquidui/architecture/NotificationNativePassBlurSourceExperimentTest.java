@@ -15,14 +15,12 @@ public class NotificationNativePassBlurSourceExperimentTest {
     @Test
     public void materialDispatchIsTheOnlyActiveNotificationTargetAuthority() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
-
         assertTrue(hook.contains("NotificationUtil"));
         assertTrue(hook.contains("applyElementViewBlend"));
         assertTrue(hook.contains("setMiBackgroundBlendColors"));
         assertTrue(hook.contains("NotificationMaterialTargetRegistry"));
         assertTrue(hook.contains("setRoundRect"));
         assertTrue(hook.contains("setChildrenExpanded"));
-
         assertFalse(hook.contains("onAttachedToWindow"));
         assertFalse(hook.contains("onReinflated"));
         assertFalse(hook.contains("ShadeBlendBlurController"));
@@ -33,35 +31,40 @@ public class NotificationNativePassBlurSourceExperimentTest {
     @Test
     public void materialHookMatchesDecompiledSystemUiDescriptor() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
-
-        // MiuiSystemUI.apk (classes2.dex):
-        // MiBlurCompat#setMiBackgroundBlendColors(View, int[], float)
         assertTrue(hook.contains("\"setMiBackgroundBlendColors\", View.class, int[].class, float.class"));
         assertTrue(hook.contains("args.length < 3"));
         assertTrue(hook.contains("args[2] instanceof Number"));
     }
 
     @Test
-    public void rowElementTargetPreservesSystemUiConsumerOwnership() throws Exception {
+    public void hyperLightElementMaterialIsAppliedBeforeSystemUiBlendSetter() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
+        assertTrue(hook.contains("beforeBackend.intercept(\n                    setMiBackgroundBlendColors"));
+        assertTrue(controller.contains("applyHyperLightElementMaterial"));
+        assertTrue(controller.contains("setMixEffectEnabled"));
+        assertTrue(controller.contains("setMiViewBlurMode"));
+        assertTrue(controller.contains("setMiBackgroundBlendColors"));
+        assertTrue(controller.contains("setMiBloomStroke"));
+        assertTrue(controller.contains("LIGHT_MATERIAL_COLORS"));
+        assertTrue(controller.contains("DARK_MATERIAL_COLORS"));
+        assertTrue(controller.contains("LIGHT_BLOOM_STROKE"));
+        assertTrue(controller.contains("DARK_BLOOM_STROKE"));
+    }
 
-        // Decompiled ExpandableNotificationRowInjector#updateBlurBg proves ordinary notification
-        // mBackgroundNormal is an element consumer: SystemUI uses viewBlurMode + blend on it.
-        // backgroundBlurMode/radius/passWindowBlur are container APIs used elsewhere, not row ownership.
+    @Test
+    public void rowElementMaterialNeverClaimsContainerPassBlurOwnership() throws Exception {
+        String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
         assertFalse(controller.contains("setMiBackgroundBlurMode"));
         assertFalse(controller.contains("setMiBackgroundBlurRadius"));
         assertFalse(controller.contains("setPassWindowBlurEnabled"));
-        assertFalse(controller.contains("clearMiBackgroundBlendColor"));
-        assertFalse(controller.contains("setMiViewBlurMode"));
-        assertTrue(controller.contains("observeSystemMaterial"));
-        assertFalse(controller.contains("takeOver("));
+        assertFalse(controller.contains("SYSTEM_PASS_BLUR_RADIUS_PX"));
     }
 
     @Test
     public void activeHookDoesNotOwnNotificationShadeSurfaceEndpointOrPrismalOesProducer() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String module = read("src/main/java/com/hellovoid/liquidui/ModuleMain.java");
-
         assertFalse(hook.contains("SystemUiPassBlurBridge"));
         assertFalse(hook.contains("NotificationPassBlurTextureView"));
         assertFalse(hook.contains("SetPassBlurSurface"));
@@ -70,12 +73,14 @@ public class NotificationNativePassBlurSourceExperimentTest {
     }
 
     @Test
-    public void roundStateComesFromSystemUiFinalRoundDispatch() throws Exception {
+    public void systemUiRoundAuthorityIsPreserved() throws Exception {
         String collector = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java");
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
-
+        String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
         assertTrue(collector.contains("NotificationMaterialTargetRegistry"));
         assertTrue(collector.contains("roundState"));
         assertTrue(hook.contains("observeRoundRect"));
+        assertFalse(controller.contains("setOutlineProvider"));
+        assertFalse(controller.contains("24.0f"));
     }
 }
