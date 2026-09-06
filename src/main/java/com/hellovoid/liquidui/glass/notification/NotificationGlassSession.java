@@ -74,6 +74,11 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT));
 
+        // Diagnostic only: the already-attached notification stack is guaranteed to share the
+        // live NotificationShade ViewRoot. Register that root before the renderer can submit any
+        // PassBlur transaction, then let the probe defer its heavier object-graph inspection.
+        FrameworkPassBlurProbe.inspectIfGenerationChanged(stack);
+
         renderer = new NotificationPassBlurTextureView(
                 parent.getContext(), stack, sceneState, this, authorityState.isEnabled(),
                 sourceState, contentAuthorityState, displayId);

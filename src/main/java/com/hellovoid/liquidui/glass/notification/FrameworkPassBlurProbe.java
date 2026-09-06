@@ -26,9 +26,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * Read-only runtime probe for HyperOS/framework-owned PassBlur consumer objects.
  *
  * <p>This intentionally does not call addTextureView, producer-binding transactions or any
- * mutating blur API. It only inspects the live NotificationPanelView ViewRoot object graph so
- * device logs can reveal the framework-owned consumer and its TextureView/SurfaceTexture holders
- * without disturbing the proven RTDA->Prismal path.</p>
+ * mutating blur API. It only inspects a live NotificationShade ViewRoot object graph so device
+ * logs can reveal the framework-owned consumer and its TextureView/SurfaceTexture holders without
+ * disturbing the proven RTDA->Prismal path.</p>
  */
 final class FrameworkPassBlurProbe {
     private static final String TAG = "[NotifGlass][FrameworkPB]";
@@ -56,12 +56,17 @@ final class FrameworkPassBlurProbe {
     static void inspectOnce(View notificationPanelView) {
         if (notificationPanelView == null) return;
         panelRef = new WeakReference<>(notificationPanelView);
+        registerShadeRootFromView(notificationPanelView);
         notificationPanelView.post(() -> inspect(notificationPanelView, true));
     }
 
     static void inspectIfGenerationChanged(View notificationPanelView) {
         if (notificationPanelView == null) return;
         panelRef = new WeakReference<>(notificationPanelView);
+        // Root registration is deliberately synchronous. A session/material-host trigger runs
+        // before LiquidUI's diagnostic producer can bind, so transaction observations cannot miss
+        // the first ownership handoff while the heavier object-graph walk remains posted.
+        registerShadeRootFromView(notificationPanelView);
         notificationPanelView.post(() -> inspect(notificationPanelView, false));
     }
 
@@ -69,6 +74,18 @@ final class FrameworkPassBlurProbe {
         probeGeneration.incrementAndGet();
         View panel = panelRef.get();
         if (panel != null) inspectIfGenerationChanged(panel);
+    }
+
+    private static void registerShadeRootFromView(View view) {
+        if (view == null || !view.isAttachedToWindow()) return;
+        try {
+            Method getViewRootImpl = View.class.getDeclaredMethod("getViewRootImpl");
+            getViewRootImpl.setAccessible(true);
+            Object viewRoot = getViewRootImpl.invoke(view);
+            if (viewRoot != null) registerShadeRoot(viewRoot);
+        } catch (Throwable error) {
+            log("shade root pre-registration failed " + error.getClass().getSimpleName());
+        }
     }
 
     private static void inspect(View panel, boolean force) {
