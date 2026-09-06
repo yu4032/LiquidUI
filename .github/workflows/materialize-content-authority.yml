@@ -30,12 +30,14 @@ jobs:
               raise SystemExit('expected exactly one PURE_MAIN insertion point')
           path.write_text(text.replace(old, new))
           PY
-      - name: Diagnose content-authority integration
+      - name: Diagnose exact failing contract lines
         run: |
-          echo '--- session handoff/source ---'
-          grep -n -A35 -B5 -E 'onFirstFrameActive|onVendorPassBlurChanged|onPassBlurSourceChanged' src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java || true
-          echo '--- exact keyguard authority plumbing ---'
-          grep -R -n -E 'NotificationShadeWindowControllerImpl|NotificationShadeWindowState|keyguardShowing|ContentAuthority' src/main/java src/test/java | head -240 || true
+          echo '--- failing architecture test lines ---'
+          nl -ba src/test/java/com/hellovoid/liquidui/architecture/NotificationSharedGlassArchitectureTest.java | sed -n '190,315p'
+          echo '--- shade authority hook install ---'
+          nl -ba src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java | sed -n '145,215p'
+          echo '--- source/content callbacks ---'
+          nl -ba src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java | sed -n '175,220p'
       - name: Run contracts
         run: ./scripts/test-contracts.sh
       - name: Run Android build
