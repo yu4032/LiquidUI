@@ -13,18 +13,19 @@ public class NotificationNativePassBlurSourceExperimentTest {
     }
 
     @Test
-    public void materialDispatchIsTheOnlyActiveNotificationTargetAuthority() throws Exception {
+    public void finalMiBlurSetterAndTargetIdentityAreTheActiveNotificationAuthority() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
-        assertTrue(hook.contains("NotificationUtil"));
-        assertTrue(hook.contains("applyElementViewBlend"));
         assertTrue(hook.contains("setMiBackgroundBlendColors"));
+        assertTrue(hook.contains("NotificationBackgroundView"));
         assertTrue(hook.contains("NotificationMaterialTargetRegistry"));
+        assertTrue(hook.contains("notificationBackgroundClass.isInstance(target)"));
         assertTrue(hook.contains("setRoundRect"));
         assertTrue(hook.contains("setChildrenExpanded"));
+        assertFalse(hook.contains("enterNotificationBlend"));
+        assertFalse(hook.contains("inNotificationBlend"));
         assertFalse(hook.contains("onAttachedToWindow"));
         assertFalse(hook.contains("onReinflated"));
         assertFalse(hook.contains("ShadeBlendBlurController"));
-        assertFalse(hook.contains("NotificationPassBlurAuthorityState"));
         assertFalse(hook.contains("NotificationGlassRuntime"));
     }
 
