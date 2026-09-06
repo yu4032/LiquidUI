@@ -75,12 +75,11 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             updateBackground = accessible(injectorClass.getDeclaredMethod("updateBackground$1"));
 
             // Verified from supplied MiuiSystemUI.apk:
-            // ExpandableNotificationRowInjector -> ActivatableNotificationViewInjector ->
-            // ExpandableOutlineViewInjector -> ExpandableViewInjector, where `view` is declared as
-            // public final ExpandableView. getDeclaredField() on the subclass is therefore wrong;
-            // getField() intentionally resolves the inherited public contract.
+            // ExpandableNotificationRowInjector inherits public final ExpandableViewInjector#view.
+            // ExpandableNotificationRow inherits public ActivatableNotificationView#mBackgroundNormal.
+            // getField() intentionally resolves both inherited public contracts.
             injectorViewField = accessible(injectorClass.getField("view"));
-            backgroundNormalField = accessible(rowClass.getDeclaredField("mBackgroundNormal"));
+            backgroundNormalField = accessible(rowClass.getField("mBackgroundNormal"));
             setChildrenExpanded = accessible(childrenContainer.getDeclaredMethod(
                     "setChildrenExpanded", boolean.class));
             setRoundRect = accessible(notificationUtil.getDeclaredMethod(
@@ -106,10 +105,10 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     setMiBloomStroke);
 
             android.util.Log.i("LiquidUI",
-                    "[LUI][NotifGlass][Hook] resolved inherited row authority "
+                    "[LUI][NotifGlass][Hook] resolved inherited notification authority "
                             + "ExpandableNotificationRowInjector#updateBackground$1() "
-                            + "viewOwner=ExpandableViewInjector bloom="
-                            + (setMiBloomStroke != null));
+                            + "viewOwner=ExpandableViewInjector backgroundOwner=ActivatableNotificationView "
+                            + "bloom=" + (setMiBloomStroke != null));
         } catch (ClassNotFoundException | NoSuchMethodException | NoSuchFieldException error) {
             android.util.Log.e("LiquidUI",
                     "[LUI][NotifGlass][Hook] notification material contract missing", error);
