@@ -10,11 +10,12 @@ public class NotificationHookRegistrationArchitectureTest {
             Path.of("src/main/java/com/hellovoid/liquidui/ModuleMain.java");
 
     @Test
-    public void moduleMainRegistersFinalRenderNotificationHook() throws Exception {
+    public void moduleMainRegistersSharedNotificationGlassHook() throws Exception {
         String source = Files.readString(MODULE_MAIN);
-        assertTrue(source.contains("NotificationRedBackgroundHook"));
+        assertTrue(source.contains("NotificationLiquidGlassHook"));
         assertTrue(source.contains("Api101BeforeMethodHookBackend"));
         assertTrue(source.contains("config.diagnosticsEnabled()"));
+        assertTrue(source.contains("config.notificationGlassEnabled()"));
         assertFalse(source.contains("Api101IntArgumentHookBackend.INSTANCE"));
         assertFalse(source.contains("Api101BooleanArgumentHookBackend.INSTANCE"));
         assertFalse(source.contains("SystemUiHookRegistry.empty()"));

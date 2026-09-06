@@ -15,20 +15,21 @@ public class SettingsShellArchitectureTest {
         assertTrue(source.contains("XposedServiceHelper.registerListener"));
         assertTrue(source.contains("ConfigSchema.ENABLED"));
         assertTrue(source.contains("ConfigSchema.DIAGNOSTICS_ENABLED"));
+        assertTrue(source.contains("ConfigSchema.NOTIFICATION_GLASS_ENABLED"));
         assertFalse(source.contains("editor.clear()"));
         assertFalse(source.contains("LiquidDock"));
     }
 
     @Test
-    public void settingsUiContainsOnlyBootstrapControlsAndExactTargetLabel() throws Exception {
+    public void settingsUiContainsBootstrapAndNotificationGlassControls() throws Exception {
         String source = Files.readString(Path.of(
                 "src/main/kotlin/com/hellovoid/liquidui/SettingsActivity.kt"));
         assertTrue(source.contains("ConfigSchema.ENABLED"));
         assertTrue(source.contains("ConfigSchema.DIAGNOSTICS_ENABLED"));
+        assertTrue(source.contains("ConfigSchema.NOTIFICATION_GLASS_ENABLED"));
         assertTrue(source.contains("systemui-001"));
         assertTrue(source.contains("SwitchPreference("));
         assertFalse(source.contains("Dock"));
         assertFalse(source.contains("Launcher"));
-        assertFalse(source.contains("Prismal"));
     }
 }
