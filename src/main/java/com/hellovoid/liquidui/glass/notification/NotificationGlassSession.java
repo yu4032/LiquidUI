@@ -131,7 +131,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
     }
 
     @Override public void onFirstFrameActive() {
-        if (shutdown || active || !authorityState.isEnabled()) return;
+        if (shutdown || active) return;
         active = true;
         renderer.setAlpha(1f);
         setShadeBlurSuppression(!rows.isEmpty());
@@ -172,17 +172,8 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
 
     private void onVendorPassBlurChanged(boolean enabled) {
         if (shutdown) return;
-        log("HyperOS notifPassBlur=" + enabled);
-        if (!enabled) {
-            active = false;
-            renderer.setAlpha(0f);
-            setShadeBlurSuppression(false);
-            materialController.restoreAll();
-            renderer.setVendorPassBlurEnabled(false, "hyperos-notifPassBlur");
-            return;
-        }
-        renderer.setVendorPassBlurEnabled(true, "hyperos-notifPassBlur");
-        refreshScene();
+        log("HyperOS notifPassBlur=" + enabled + " (diagnostic only)");
+        renderer.setVendorPassBlurEnabled(enabled, "hyperos-notifPassBlur");
     }
 
     private void onPassBlurSourceChanged(NotificationPassBlurSourceState.Snapshot snapshot) {
@@ -196,7 +187,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
             materialController.restoreAll();
         }
         renderer.onPassBlurSourceChanged("root-task-display-area");
-        if (snapshot.available() && authorityState.isEnabled()) refreshScene();
+        if (snapshot.available()) refreshScene();
     }
 
     private void installPreDraw(View stack) {

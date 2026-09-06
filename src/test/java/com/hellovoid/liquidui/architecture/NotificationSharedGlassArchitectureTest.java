@@ -187,6 +187,36 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
+    public void gpuFirstFrameHandoffDoesNotRequireHyperOsNotifPassBlurAuthority() throws Exception {
+        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+
+        int firstFrame = session.indexOf("@Override public void onFirstFrameActive()");
+        int terminalFailure = session.indexOf("@Override public void onTerminalFailure", firstFrame);
+        assertTrue(firstFrame >= 0 && terminalFailure > firstFrame);
+        String firstFrameBody = session.substring(firstFrame, terminalFailure);
+        assertFalse(firstFrameBody.contains("authorityState.isEnabled()"));
+        assertTrue(firstFrameBody.contains("active = true"));
+        assertTrue(firstFrameBody.contains("renderer.setAlpha(1f)"));
+        assertTrue(firstFrameBody.contains("suppressVendorMaterial()"));
+
+        int vendorChange = session.indexOf("private void onVendorPassBlurChanged");
+        int sourceChange = session.indexOf("private void onPassBlurSourceChanged", vendorChange);
+        assertTrue(vendorChange >= 0 && sourceChange > vendorChange);
+        String vendorBody = session.substring(vendorChange, sourceChange);
+        assertTrue(vendorBody.contains("diagnostic only"));
+        assertTrue(vendorBody.contains("setVendorPassBlurEnabled"));
+        assertFalse(vendorBody.contains("active = false"));
+        assertFalse(vendorBody.contains("renderer.setAlpha(0f)"));
+        assertFalse(vendorBody.contains("materialController.restoreAll()"));
+        assertFalse(vendorBody.contains("setShadeBlurSuppression(false)"));
+
+        int installPreDraw = session.indexOf("private void installPreDraw", sourceChange);
+        String sourceBody = session.substring(sourceChange, installPreDraw);
+        assertTrue(sourceBody.contains("if (snapshot.available()) refreshScene();"));
+        assertFalse(sourceBody.contains("authorityState.isEnabled()"));
+    }
+
+    @Test
     public void prismalRoundnessUsesLiveRowRoundableAuthority() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String collector = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java");
