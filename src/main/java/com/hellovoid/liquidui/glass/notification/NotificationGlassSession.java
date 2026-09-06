@@ -145,6 +145,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         if (shutdown || active) return;
         active = true;
         renderer.setAlpha(1f);
+        NotificationCornerAuthorityProbe.observeMapping(renderer);
         setShadeBlurSuppression(!rows.isEmpty());
         log("first GPU frame active nodes=" + lastNodes.size());
         suppressVendorMaterial();

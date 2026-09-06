@@ -93,9 +93,14 @@ final class NotificationGlassNodeCollector {
             float topRadius = number(topCornerRadius.invoke(rowObject));
             float bottomRadius = number(bottomCornerRadius.invoke(rowObject));
             float opacity = row.getAlpha();
-            return new NotificationGlassNode(
+            NotificationGlassNode node = new NotificationGlassNode(
                     left, top, actualWidth, visibleHeight,
                     topRadius, topRadius, bottomRadius, bottomRadius, opacity);
+            NotificationCornerAuthorityProbe.observeNode(
+                    rowObject, row, background, host, node,
+                    actualWidth, actualHeight, clipTop, clipBottom,
+                    expand, topRadius, bottomRadius);
+            return node;
         } catch (Throwable ignored) {
             return null;
         }
