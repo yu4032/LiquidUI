@@ -307,16 +307,6 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                         authorityState.observe(requested);
                     })::unhook);
             rollbacks.add(argumentBackend.intercept(
-                    stackBlurRadius,
-                    ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
-                    (thisObject, args) -> {
-                        if (!activityState.isActive() || args.length == 0
-                                || !(args[0] instanceof Float radius)) {
-                            return;
-                        }
-                        args[0] = NotificationShadeBlurPolicy.blurRatio(true, radius);
-                    })::unhook);
-            rollbacks.add(argumentBackend.intercept(
                     blurUtilsApplyBlur,
                     ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> {
@@ -326,6 +316,16 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                         Object rootView = args[0] == null ? null : viewRootGetView.invoke(args[0]);
                         if (!shadeWindowClass.isInstance(rootView)) return;
                         args[1] = NotificationShadeBlurPolicy.blurRadius(true, radius);
+                    })::unhook);
+            rollbacks.add(argumentBackend.intercept(
+                    stackBlurRadius,
+                    ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> {
+                        if (!activityState.isActive() || args.length == 0
+                                || !(args[0] instanceof Float radius)) {
+                            return;
+                        }
+                        args[0] = NotificationShadeBlurPolicy.blurRatio(true, radius);
                     })::unhook);
             return HookInstallResult.installed(HOOK_ID);
         } catch (Throwable error) {
