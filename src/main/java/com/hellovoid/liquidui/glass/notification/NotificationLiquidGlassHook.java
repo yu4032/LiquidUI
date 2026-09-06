@@ -21,7 +21,7 @@ import java.util.Objects;
  * Ordinary notification rows are element consumers: ExpandableNotificationRowInjector#updateBlurBg
  * sends mBackgroundNormal through NotificationUtil#applyElementViewBlend, which then calls
  * MiBlurCompat#setMiBackgroundBlendColors(View, int[], float). LiquidUI observes that exact target
- * without inventing a caller-owned NotificationShade endpoint or changing background PassBlur
+ * without inventing a caller-owned shade Surface endpoint or changing background PassBlur
  * ownership. Prismal/OES classes remain dormant until a framework pass-texture handoff is proven.
  */
 public final class NotificationLiquidGlassHook implements SystemUiHook {
