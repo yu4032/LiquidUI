@@ -36,25 +36,26 @@ jobs:
           from pathlib import Path
           path = Path('src/test/java/com/hellovoid/liquidui/architecture/NotificationSharedGlassArchitectureTest.java')
           text = path.read_text()
-          old_vendor = '''        int vendorChange = session.indexOf("private void onVendorPassBlurChanged");
-          int sourceChange = session.indexOf("private void onPassBlurSourceChanged", vendorChange);
-          assertTrue(vendorChange >= 0 && sourceChange > vendorChange);
-          String vendorBody = session.substring(vendorChange, sourceChange);
-'''
-          new_vendor = '''        int vendorChange = session.indexOf("private void onVendorPassBlurChanged");
-          int contentChange = session.indexOf("private void onContentAuthorityChanged", vendorChange);
-          int sourceChange = session.indexOf("private void onPassBlurSourceChanged", contentChange);
-          assertTrue(vendorChange >= 0 && contentChange > vendorChange && sourceChange > contentChange);
-          String vendorBody = session.substring(vendorChange, contentChange);
-'''
-          old_apply = '        assertTrue(hook.contains("getDeclaredMethod(\\"apply\\", shadeWindowStateClass)"));\n'
-          new_apply = '        assertTrue(hook.contains("\\"apply\\", shadeWindowStateClass"));\n'
+          old_vendor = '\n'.join([
+              '        int vendorChange = session.indexOf("private void onVendorPassBlurChanged");',
+              '        int sourceChange = session.indexOf("private void onPassBlurSourceChanged", vendorChange);',
+              '        assertTrue(vendorChange >= 0 && sourceChange > vendorChange);',
+              '        String vendorBody = session.substring(vendorChange, sourceChange);',
+          ]) + '\n'
+          new_vendor = '\n'.join([
+              '        int vendorChange = session.indexOf("private void onVendorPassBlurChanged");',
+              '        int contentChange = session.indexOf("private void onContentAuthorityChanged", vendorChange);',
+              '        int sourceChange = session.indexOf("private void onPassBlurSourceChanged", contentChange);',
+              '        assertTrue(vendorChange >= 0 && contentChange > vendorChange && sourceChange > contentChange);',
+              '        String vendorBody = session.substring(vendorChange, contentChange);',
+          ]) + '\n'
+          old_apply = '        assertTrue(hook.contains("getDeclaredMethod(\\"apply\\", shadeWindowStateClass)"));'
+          new_apply = '        assertTrue(hook.contains("\\"apply\\", shadeWindowStateClass"));'
           if text.count(old_vendor) != 1:
               raise SystemExit('expected exactly one vendor contract block')
           if text.count(old_apply) != 1:
               raise SystemExit('expected exactly one shade apply contract assertion')
-          text = text.replace(old_vendor, new_vendor).replace(old_apply, new_apply)
-          path.write_text(text)
+          path.write_text(text.replace(old_vendor, new_vendor).replace(old_apply, new_apply))
           PY
       - name: Run contracts
         run: ./scripts/test-contracts.sh
