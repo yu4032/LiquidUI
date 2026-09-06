@@ -124,7 +124,7 @@ public class NotificationSharedGlassArchitectureTest {
 
 
     @Test
-    public void producerSamplingFollowsHyperOsNotifPassBlurAuthority() throws Exception {
+    public void liquidUiProducerBindDoesNotRequireHyperOsNotifPassBlurGate() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
@@ -133,9 +133,11 @@ public class NotificationSharedGlassArchitectureTest {
         assertTrue(hook.contains("authorityState.observe(requested)"));
         assertTrue(session.contains("authorityState.addListener"));
         assertTrue(session.contains("setVendorPassBlurEnabled"));
-        assertTrue(renderer.contains("vendorPassBlurEnabled"));
-        assertTrue(renderer.contains("!vendorPassBlurEnabled"));
-        assertTrue(renderer.contains("SystemUiPassBlurBridge.unbind"));
+        assertTrue(renderer.contains("vendorPassBlurEnabled")); // diagnostics only
+        assertFalse(renderer.contains("!vendorPassBlurEnabled"));
+        assertFalse(renderer.contains("recovery.requestBind && vendorPassBlurEnabled"));
+        assertFalse(renderer.contains("enabled && vendorPassBlurEnabled"));
+        assertTrue(renderer.contains("SystemUiPassBlurBridge.bind"));
         assertFalse(bridge.contains("setMiBlurWinExc"));
         assertFalse(bridge.contains("exclusions"));
     }

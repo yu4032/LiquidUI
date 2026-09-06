@@ -329,11 +329,11 @@ final class NotificationPassBlurTextureView extends TextureView
         renderHandler.post(() -> {
             SystemUiPassBlurBridge.Binding current = binding;
             if (shuttingDown || current == null || !current.bound) return;
-            boolean effective = enabled && vendorPassBlurEnabled;
+            boolean effective = enabled;
             if (effective) SystemUiPassBlurBridge.resumeUpdates(current);
             else SystemUiPassBlurBridge.pauseUpdates(current);
             log(" producer updates=" + effective + " rowGate=" + enabled
-                    + " vendorGate=" + vendorPassBlurEnabled + " reason=" + reason);
+                    + " vendorObserved=" + vendorPassBlurEnabled + " reason=" + reason);
         });
     }
 
@@ -341,11 +341,9 @@ final class NotificationPassBlurTextureView extends TextureView
         if (shuttingDown) return;
         boolean changed = vendorPassBlurEnabled != enabled;
         vendorPassBlurEnabled = enabled;
-        if (!changed) return;
-        if (enabled) {
-            renderHandler.post(() -> activateVendorPassBlurAuthority(reason));
-        } else {
-            renderHandler.post(() -> retireVendorPassBlurAuthority(reason));
+        if (changed) {
+            log(" vendor PassBlur observed=" + enabled + " reason=" + reason
+                    + " (diagnostic only; LiquidUI producer is source-driven)");
         }
     }
 
@@ -374,47 +372,7 @@ final class NotificationPassBlurTextureView extends TextureView
             if (recovery.accepted && recovery.recreateProducer) {
                 requestProducerRecreate("source-change:" + reason);
             }
-            if (vendorPassBlurEnabled) post(() -> bindProducerWhenReady(0));
         });
-    }
-
-    private void activateVendorPassBlurAuthority(String reason) {
-        if (shuttingDown || !vendorPassBlurEnabled) return;
-        SystemUiPassBlurBridge.Binding current = binding;
-        if (current != null && current.bound) {
-            if (producerUpdatesEnabled) SystemUiPassBlurBridge.resumeUpdates(current);
-            else SystemUiPassBlurBridge.pauseUpdates(current);
-            return;
-        }
-        if (inputProducerSurface == null || inputSurfaceTexture == null) {
-            log(" vendor PassBlur open; producer not ready reason=" + reason);
-            return;
-        }
-        log(" vendor PassBlur open; request bind reason=" + reason);
-        post(() -> bindProducerWhenReady(0));
-    }
-
-    private void retireVendorPassBlurAuthority(String reason) {
-        if (shuttingDown) return;
-        SystemUiPassBlurBridge.Binding current = binding;
-        binding = null;
-        if (current != null) SystemUiPassBlurBridge.unbind(current);
-        gpuBackdropActive = false;
-        frameAvailable.set(false);
-        producerRecovery.onGeometryInvalidated();
-        firstFrameLogged = false;
-        firstDrawLogged = false;
-        firstMatrixLogged = false;
-        stageBDiagnosticsLogged = false;
-        prismalMappingLogged = false;
-        resetBoundGeometry();
-        if (current != null) {
-            ZeroCopyProducerRecoveryState.Decision recovery = producerRecovery.onRebindRequested();
-            if (recovery.accepted && recovery.recreateProducer) {
-                requestProducerRecreate("vendor-authority-off:" + reason);
-            }
-        }
-        log(" vendor PassBlur closed; sampling unbound reason=" + reason);
     }
 
     void rebindProducer(String reason) {
@@ -489,7 +447,7 @@ final class NotificationPassBlurTextureView extends TextureView
             log(" input producer recreated reason=" + reason);
             ZeroCopyProducerRecoveryState.Decision recovery =
                     producerRecovery.onProducerRecreated();
-            if (recovery.requestBind && vendorPassBlurEnabled) {
+            if (recovery.requestBind) {
                 post(() -> bindProducerWhenReady(0));
             }
         } catch (Throwable error) {
@@ -713,11 +671,7 @@ final class NotificationPassBlurTextureView extends TextureView
 
         if (oesTexture == 0 || inputSurfaceTexture == null || inputProducerSurface == null) {
             createInputProducer();
-            if (vendorPassBlurEnabled) {
-                post(() -> bindProducerWhenReady(0));
-            } else {
-                log(" vendor PassBlur closed; initial producer remains unbound");
-            }
+            post(() -> bindProducerWhenReady(0));
         }
     }
 
@@ -993,7 +947,7 @@ final class NotificationPassBlurTextureView extends TextureView
     }
 
     private void bindProducerWhenReady(int attempt) {
-        if (shuttingDown || binding != null || !vendorPassBlurEnabled) return;
+        if (shuttingDown || binding != null) return;
         View materialHost = materialHostRef.get();
         Surface producer = inputProducerSurface;
         SurfaceTexture input = inputSurfaceTexture;
@@ -1037,7 +991,7 @@ final class NotificationPassBlurTextureView extends TextureView
     private void finishBindProducer(ProducerGeometry geometry, SurfaceControl sourceSurface,
                                     long sourceGeneration, Surface producer,
                                     long endpointGeneration, int attempt) {
-        if (shuttingDown || binding != null || !vendorPassBlurEnabled
+        if (shuttingDown || binding != null
                 || producer != inputProducerSurface
                 || endpointGeneration != inputProducerGeneration) return;
         View materialHost = materialHostRef.get();
@@ -1086,7 +1040,7 @@ final class NotificationPassBlurTextureView extends TextureView
     }
 
     private void retryBind(int attempt, String reason) {
-        if (shuttingDown || binding != null || !vendorPassBlurEnabled) return;
+        if (shuttingDown || binding != null) return;
         if (attempt >= MAX_BIND_RETRY_FRAMES) {
             producerRecovery.onBindExhausted();
             IllegalStateException failure = new IllegalStateException(
