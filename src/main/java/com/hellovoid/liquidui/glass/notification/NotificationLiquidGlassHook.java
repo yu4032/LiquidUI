@@ -16,8 +16,13 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Notification glass experiment whose authority is SystemUI material dispatch and whose PassBlur
- * endpoint is the exact target View/RenderNode. Prismal/OES classes remain dormant for later use.
+ * Notification material authority derived from the target MiuiSystemUI.apk.
+ *
+ * Ordinary notification rows are element consumers: ExpandableNotificationRowInjector#updateBlurBg
+ * sends mBackgroundNormal through NotificationUtil#applyElementViewBlend, which then calls
+ * MiBlurCompat#setMiBackgroundBlendColors(View, int[], float). LiquidUI observes that exact target
+ * without inventing a caller-owned NotificationShade endpoint or changing background PassBlur
+ * ownership. Prismal/OES classes remain dormant until a framework pass-texture handoff is proven.
  */
 public final class NotificationLiquidGlassHook implements SystemUiHook {
     public static final String HOOK_ID = "notification.liquid-glass";
@@ -34,7 +39,6 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
     private final AfterMethodHookBackend afterBackend;
     private final boolean enabled;
     private final ThreadLocal<Integer> notificationBlendDepth = ThreadLocal.withInitial(() -> 0);
-    private final ThreadLocal<Boolean> selfMaterialApply = new ThreadLocal<>();
 
     public NotificationLiquidGlassHook(
             BeforeMethodHookBackend beforeBackend,
@@ -68,36 +72,19 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             Class<?> childrenContainer = TargetClassResolver.require(classLoader, CHILDREN_CONTAINER);
             Class<?> miBlurCompat = TargetClassResolver.require(classLoader, MI_BLUR_COMPAT);
 
+            // Verified from the file-library MiuiSystemUI.apk (classes2.dex).
             applyElementViewBlend = accessible(notificationUtil.getDeclaredMethod(
                     "applyElementViewBlend", Context.class, View.class,
                     boolean.class, int[].class, boolean.class));
             setMiBackgroundBlendColors = accessible(miBlurCompat.getDeclaredMethod(
-                    "setMiBackgroundBlendColors", View.class, int[].class));
+                    "setMiBackgroundBlendColors", View.class, int[].class, float.class));
             setChildrenExpanded = accessible(childrenContainer.getDeclaredMethod(
                     "setChildrenExpanded", boolean.class));
             setRoundRect = accessible(notificationUtil.getDeclaredMethod(
                     "setRoundRect", View.class, boolean.class, boolean.class));
 
-            Method clearMiBackgroundBlendColor = accessible(
-                    View.class.getDeclaredMethod("clearMiBackgroundBlendColor"));
-            Method setMiBackgroundBlurMode = accessible(
-                    View.class.getDeclaredMethod("setMiBackgroundBlurMode", int.class));
-            Method setMiViewBlurMode = accessible(
-                    View.class.getDeclaredMethod("setMiViewBlurMode", int.class));
-            Method setMiBackgroundBlurRadius = accessible(
-                    View.class.getDeclaredMethod("setMiBackgroundBlurRadius", int.class));
-            Method setPassWindowBlurEnabled = accessible(
-                    View.class.getDeclaredMethod("setPassWindowBlurEnabled", boolean.class));
-
             targetRegistry = new NotificationMaterialTargetRegistry(rowClass);
-            materialController = new NotificationVendorMaterialController(
-                    clearMiBackgroundBlendColor,
-                    setMiBackgroundBlurMode,
-                    setMiViewBlurMode,
-                    setMiBackgroundBlurRadius,
-                    setPassWindowBlurEnabled,
-                    setMiBackgroundBlendColors,
-                    selfMaterialApply);
+            materialController = new NotificationVendorMaterialController();
         } catch (ClassNotFoundException | NoSuchMethodException error) {
             return HookInstallResult.unsupported(HOOK_ID,
                     "exact notification material contract missing: " + error);
@@ -108,7 +95,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
 
         List<Runnable> rollbacks = new ArrayList<>();
         try {
-            // HyperLight authority: this scope identifies notification-only material dispatch.
+            // Scope only MiBlurCompat calls made by SystemUI notification material dispatch.
             rollbacks.add(beforeBackend.intercept(
                     applyElementViewBlend,
                     BeforeMethodHookBackend.PRIORITY_HIGHEST,
@@ -118,20 +105,24 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     AfterMethodHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> exitNotificationBlend())::unhook);
 
-            // Exact SystemUI material target. The original setter runs first, then LiquidUI clears
-            // the complete vendor state and establishes View-owned PassBlur on that same View.
+            // SystemUI has already established the native element consumer state when this after
+            // callback runs. Observe the exact View and preserve that state unchanged.
             rollbacks.add(afterBackend.intercept(
                     setMiBackgroundBlendColors,
                     AfterMethodHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> {
-                        if (!inNotificationBlend() || Boolean.TRUE.equals(selfMaterialApply.get())) return;
-                        if (args.length < 2 || !(args[0] instanceof View target)
-                                || !(args[1] instanceof int[] colors)) return;
-                        targetRegistry.observeMaterialTarget(target);
-                        materialController.takeOver(target, colors);
+                        if (!inNotificationBlend()) return;
+                        if (args.length < 3 || !(args[0] instanceof View target)
+                                || !(args[1] instanceof int[] colors)
+                                || !(args[2] instanceof Number ratio)) return;
+                        Object row = targetRegistry.observeMaterialTarget(target);
+                        if (row == null) return;
+                        materialController.observeSystemMaterial(
+                                target, row, colors, ratio.floatValue());
                     })::unhook);
 
-            // Round authority is observed from SystemUI's final material state, not guessed dp.
+            // Final round-state authority is SystemUI's own setRoundRect dispatch. Keep the group
+            // expansion state alongside it for later Prismal geometry handoff.
             rollbacks.add(beforeBackend.intercept(
                     setChildrenExpanded,
                     BeforeMethodHookBackend.PRIORITY_HIGHEST,
