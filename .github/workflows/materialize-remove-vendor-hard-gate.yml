@@ -1,0 +1,144 @@
+name: Materialize remove vendor PassBlur hard gate
+on:
+  push:
+    branches:
+      - staging/remove-vendor-passblur-hard-gate
+permissions:
+  contents: write
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Apply exact source-driven bind patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java')
+          s = p.read_text()
+          s = s.replace(
+          '''            boolean effective = enabled && vendorPassBlurEnabled;
+            if (effective) SystemUiPassBlurBridge.resumeUpdates(current);
+            else SystemUiPassBlurBridge.pauseUpdates(current);
+            log(" producer updates=" + effective + " rowGate=" + enabled
+                    + " vendorGate=" + vendorPassBlurEnabled + " reason=" + reason);
+          ''',
+          '''            boolean effective = enabled;
+            if (effective) SystemUiPassBlurBridge.resumeUpdates(current);
+            else SystemUiPassBlurBridge.pauseUpdates(current);
+            log(" producer updates=" + effective + " rowGate=" + enabled
+                    + " vendorObserved=" + vendorPassBlurEnabled + " reason=" + reason);
+          ''')
+          old = '''    void setVendorPassBlurEnabled(boolean enabled, String reason) {
+        if (shuttingDown) return;
+        boolean changed = vendorPassBlurEnabled != enabled;
+        vendorPassBlurEnabled = enabled;
+        if (!changed) return;
+        if (enabled) {
+            renderHandler.post(() -> activateVendorPassBlurAuthority(reason));
+        } else {
+            renderHandler.post(() -> retireVendorPassBlurAuthority(reason));
+        }
+    }
+'''
+          new = '''    void setVendorPassBlurEnabled(boolean enabled, String reason) {
+        if (shuttingDown) return;
+        boolean changed = vendorPassBlurEnabled != enabled;
+        vendorPassBlurEnabled = enabled;
+        if (changed) {
+            log(" vendor PassBlur observed=" + enabled + " reason=" + reason
+                    + " (diagnostic only; LiquidUI producer is source-driven)");
+        }
+    }
+'''
+          assert old in s
+          s = s.replace(old, new)
+          start = s.index('    private void activateVendorPassBlurAuthority(String reason) {')
+          end = s.index('    void rebindProducer(String reason) {', start)
+          s = s[:start] + s[end:]
+          s = s.replace('''            if (vendorPassBlurEnabled) post(() -> bindProducerWhenReady(0));
+''', '')
+          s = s.replace('''            if (recovery.requestBind && vendorPassBlurEnabled) {
+                post(() -> bindProducerWhenReady(0));
+            }
+''', '''            if (recovery.requestBind) {
+                post(() -> bindProducerWhenReady(0));
+            }
+''')
+          s = s.replace('''            if (vendorPassBlurEnabled) {
+                post(() -> bindProducerWhenReady(0));
+            } else {
+                log(" vendor PassBlur closed; initial producer remains unbound");
+            }
+''', '''            post(() -> bindProducerWhenReady(0));
+''')
+          s = s.replace('''        if (shuttingDown || binding != null || !vendorPassBlurEnabled) return;
+''', '''        if (shuttingDown || binding != null) return;
+''')
+          s = s.replace('''        if (shuttingDown || binding != null || !vendorPassBlurEnabled
+                || producer != inputProducerSurface
+''', '''        if (shuttingDown || binding != null
+                || producer != inputProducerSurface
+''')
+          p.write_text(s)
+
+          p = Path('src/test/java/com/hellovoid/liquidui/architecture/NotificationSharedGlassArchitectureTest.java')
+          s = p.read_text()
+          old = '''    @Test
+    public void producerSamplingFollowsHyperOsNotifPassBlurAuthority() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
+        assertTrue(hook.contains("NotificationPassBlurAuthorityState"));
+        assertTrue(hook.contains("authorityState.observe(requested)"));
+        assertTrue(session.contains("authorityState.addListener"));
+        assertTrue(session.contains("setVendorPassBlurEnabled"));
+        assertTrue(renderer.contains("vendorPassBlurEnabled"));
+        assertTrue(renderer.contains("!vendorPassBlurEnabled"));
+        assertTrue(renderer.contains("SystemUiPassBlurBridge.unbind"));
+        assertFalse(bridge.contains("setMiBlurWinExc"));
+        assertFalse(bridge.contains("exclusions"));
+    }
+'''
+          new = '''    @Test
+    public void liquidUiProducerBindDoesNotRequireHyperOsNotifPassBlurGate() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
+        assertTrue(hook.contains("NotificationPassBlurAuthorityState"));
+        assertTrue(hook.contains("authorityState.observe(requested)"));
+        assertTrue(session.contains("authorityState.addListener"));
+        assertTrue(session.contains("setVendorPassBlurEnabled"));
+        assertTrue(renderer.contains("vendorPassBlurEnabled"));
+        assertFalse(renderer.contains("!vendorPassBlurEnabled"));
+        assertFalse(renderer.contains("recovery.requestBind && vendorPassBlurEnabled"));
+        assertFalse(renderer.contains("enabled && vendorPassBlurEnabled"));
+        assertTrue(renderer.contains("SystemUiPassBlurBridge.bind"));
+        assertFalse(bridge.contains("setMiBlurWinExc"));
+        assertFalse(bridge.contains("exclusions"));
+    }
+'''
+          assert old in s
+          p.write_text(s.replace(old, new))
+          PY
+      - name: Run contracts
+        run: ./scripts/test-contracts.sh
+      - name: Commit materialized tree
+        shell: bash
+        run: |
+          rm -f .github/workflows/materialize-remove-vendor-hard-gate.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: bind notification glass from RTDA source independently'
+          git push
