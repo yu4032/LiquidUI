@@ -11,6 +11,7 @@ import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Applies LiquidUI material and native PassBlur backdrop to the exact notification target. */
@@ -72,8 +73,15 @@ final class NotificationVendorMaterialController {
     private final Method setMiBackgroundBlurMode;
     private final Method setMiBackgroundBlurRadius;
     private final Method setPassWindowBlurEnabled;
+    private final Method setPassTextureScale;
+    private final Method disableMiBackgroundContainBelow;
+    private final Method chooseBackgroundBlurContainer;
     private final AtomicBoolean passBlurLogged = new AtomicBoolean();
+    private final AtomicBoolean gpuBackdropLogged = new AtomicBoolean();
+    private final AtomicBoolean agslScheduleLogged = new AtomicBoolean();
     private final AtomicBoolean agslLogged = new AtomicBoolean();
+    private final WeakHashMap<View, View.OnLayoutChangeListener> pendingAgslLayouts =
+            new WeakHashMap<>();
     private RuntimeShader refractionShader;
     private RenderEffect refractionEffect;
 
@@ -91,6 +99,11 @@ final class NotificationVendorMaterialController {
         this.setMiBackgroundBlurMode = View.class.getMethod("setMiBackgroundBlurMode", int.class);
         this.setMiBackgroundBlurRadius = View.class.getMethod("setMiBackgroundBlurRadius", int.class);
         this.setPassWindowBlurEnabled = View.class.getMethod("setPassWindowBlurEnabled", boolean.class);
+        this.setPassTextureScale = View.class.getMethod("setPassTextureScale", float.class);
+        this.disableMiBackgroundContainBelow =
+                View.class.getMethod("disableMiBackgroundContainBelow", boolean.class);
+        this.chooseBackgroundBlurContainer =
+                View.class.getMethod("chooseBackgroundBlurContainer", View.class);
     }
 
     /** Remove SystemUI's default notification element blend before LiquidUI owns this target. */
@@ -112,8 +125,10 @@ final class NotificationVendorMaterialController {
         int[] materialModes = light ? LIGHT_MATERIAL_MODES : DARK_MATERIAL_MODES;
 
         try {
+            // Keep the already-proven exact card consumer alive while the GPU container probe runs.
             enableCardBackdrop(target);
-            applyAgslRefractionProbe(target);
+            enableGpuBackdropContainer(row, target);
+            scheduleAgslRefractionProbe(target);
             setMixEffectEnabled.invoke(target, true);
             setMiViewBlurMode.invoke(target, 1);
             setMiBackgroundBlendColors.invoke(
@@ -127,14 +142,9 @@ final class NotificationVendorMaterialController {
         }
     }
 
-    /**
-     * Supplied MiuiSystemUI.apk uses the same native backdrop tuple in
-     * NotificationUtil#applyContainerViewBlur and ElementSurfaceModel#updateBlurContainer:
-     * backgroundBlurMode=1 + positive radius + passWindowBlur=true.
-     */
+    /** Existing card-local native PassBlur consumer, retained as the visual control for this spike. */
     private void enableCardBackdrop(View target) throws Exception {
-        int radiusPx = Math.max(1, Math.round(
-                CARD_PASS_BLUR_RADIUS_DP * target.getResources().getDisplayMetrics().density));
+        int radiusPx = blurRadiusPx(target);
         setMiBackgroundBlurMode.invoke(target, 1);
         setMiBackgroundBlurRadius.invoke(target, radiusPx);
         setPassWindowBlurEnabled.invoke(target, true);
@@ -148,36 +158,107 @@ final class NotificationVendorMaterialController {
     }
 
     /**
-     * Feasibility probe only: apply an intentionally strong AGSL displacement to this exact View.
-     * If vendor PassBlur is part of the View render input, the sharp backdrop pattern will visibly
-     * bend near the card edge and split into RGB fringes. No screenshot or capture texture is used.
+     * GPU-only feasibility probe. This mirrors the exact SystemUI clock container sequence from the
+     * supplied MiuiSystemUI.apk: pass-window blur, background mode/radius, pass texture scale 0,
+     * disable contain-below, then choose the member View. The compositor owns the sampled backdrop;
+     * no Bitmap, CPU screenshot, PixelCopy, MediaProjection or SurfaceControl capture is involved.
      */
-    private void applyAgslRefractionProbe(View target) {
-        int width = Math.max(target.getWidth(), target.getMeasuredWidth());
-        int height = Math.max(target.getHeight(), target.getMeasuredHeight());
-        if (width <= 0 || height <= 0) {
-            if (agslLogged.compareAndSet(false, true)) {
-                log("AGSL refraction probe skipped zero-size target=" + target.getClass().getName()
-                        + " width=" + width + " height=" + height);
+    private void enableGpuBackdropContainer(Object row, View member) throws Exception {
+        if (!(row instanceof View container)) {
+            if (gpuBackdropLogged.compareAndSet(false, true)) {
+                log("GPU backdrop container unavailable row="
+                        + (row == null ? "null" : row.getClass().getName()));
             }
             return;
         }
 
-        if (refractionShader == null) {
-            refractionShader = new RuntimeShader(AGSL_REFRACTION_PROBE);
-            refractionEffect = RenderEffect.createRuntimeShaderEffect(refractionShader, "content");
-        }
-        refractionShader.setFloatUniform("size", (float) width, (float) height);
-        refractionShader.setFloatUniform("refractionAmount", PROBE_REFRACTION_AMOUNT_PX);
-        refractionShader.setFloatUniform("chromaticAberration", PROBE_CHROMATIC_ABERRATION_PX);
-        target.setRenderEffect(refractionEffect);
+        int radiusPx = blurRadiusPx(member);
+        Object passEnabled = setPassWindowBlurEnabled.invoke(container, true);
+        setMiBackgroundBlurMode.invoke(container, 1);
+        setMiBackgroundBlurRadius.invoke(container, radiusPx);
+        Object scaleResult = setPassTextureScale.invoke(container, 0.0f);
+        disableMiBackgroundContainBelow.invoke(container, true);
+        chooseBackgroundBlurContainer.invoke(container, member);
 
-        if (agslLogged.compareAndSet(false, true)) {
-            log("applied AGSL refraction probe target=" + target.getClass().getName()
-                    + " size=" + width + "x" + height
-                    + " refractionPx=" + PROBE_REFRACTION_AMOUNT_PX
-                    + " chromaticPx=" + PROBE_CHROMATIC_ABERRATION_PX);
+        if (gpuBackdropLogged.compareAndSet(false, true)) {
+            log("enabled GPU backdrop container=" + container.getClass().getName()
+                    + " member=" + member.getClass().getName()
+                    + " radiusPx=" + radiusPx
+                    + " passWindowResult=" + String.valueOf(passEnabled)
+                    + " passTextureScaleResult=" + String.valueOf(scaleResult));
         }
+    }
+
+    /** Wait for the real notification geometry before applying the AGSL RenderEffect. */
+    private void scheduleAgslRefractionProbe(View target) {
+        int width = Math.max(target.getWidth(), target.getMeasuredWidth());
+        int height = Math.max(target.getHeight(), target.getMeasuredHeight());
+        if (width > 0 && height > 0) {
+            applyAgslRefractionProbe(target);
+            return;
+        }
+
+        if (pendingAgslLayouts.containsKey(target)) return;
+        View.OnLayoutChangeListener listener = new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(
+                    View view,
+                    int left,
+                    int top,
+                    int right,
+                    int bottom,
+                    int oldLeft,
+                    int oldTop,
+                    int oldRight,
+                    int oldBottom) {
+                if (right <= left || bottom <= top) return;
+                target.removeOnLayoutChangeListener(this);
+                pendingAgslLayouts.remove(target);
+                applyAgslRefractionProbe(target);
+            }
+        };
+        pendingAgslLayouts.put(target, listener);
+        target.addOnLayoutChangeListener(listener);
+        if (agslScheduleLogged.compareAndSet(false, true)) {
+            log("scheduled AGSL refraction probe after layout target="
+                    + target.getClass().getName());
+        }
+    }
+
+    /**
+     * Feasibility probe only: apply an intentionally strong AGSL displacement to this exact View.
+     * If the GPU blur-container member is included in the View render input, the backdrop will bend
+     * near the card edge and split into RGB fringes.
+     */
+    private void applyAgslRefractionProbe(View target) {
+        int width = Math.max(target.getWidth(), target.getMeasuredWidth());
+        int height = Math.max(target.getHeight(), target.getMeasuredHeight());
+        if (width <= 0 || height <= 0) return;
+
+        try {
+            if (refractionShader == null) {
+                refractionShader = new RuntimeShader(AGSL_REFRACTION_PROBE);
+                refractionEffect = RenderEffect.createRuntimeShaderEffect(refractionShader, "content");
+            }
+            refractionShader.setFloatUniform("size", (float) width, (float) height);
+            refractionShader.setFloatUniform("refractionAmount", PROBE_REFRACTION_AMOUNT_PX);
+            refractionShader.setFloatUniform("chromaticAberration", PROBE_CHROMATIC_ABERRATION_PX);
+            target.setRenderEffect(refractionEffect);
+
+            if (agslLogged.compareAndSet(false, true)) {
+                log("applied AGSL refraction probe target=" + target.getClass().getName()
+                        + " size=" + width + "x" + height
+                        + " refractionPx=" + PROBE_REFRACTION_AMOUNT_PX
+                        + " chromaticPx=" + PROBE_CHROMATIC_ABERRATION_PX);
+            }
+        } catch (Throwable error) {
+            logError("AGSL refraction probe failed target=" + target.getClass().getName(), error);
+        }
+    }
+
+    private static int blurRadiusPx(View target) {
+        return Math.max(1, Math.round(
+                CARD_PASS_BLUR_RADIUS_DP * target.getResources().getDisplayMetrics().density));
     }
 
     private static boolean isLight(View target) {
