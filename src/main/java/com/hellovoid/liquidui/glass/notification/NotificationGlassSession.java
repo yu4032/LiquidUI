@@ -13,14 +13,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.WeakHashMap;
 
-/** One NotificationShade/NSSL shared PassBlur producer, TextureView, EGL thread and Prismal scene. */
+/** Dormant legacy OES/Prismal session retained but disconnected from the active notification hook. */
 final class NotificationGlassSession implements NotificationPassBlurTextureView.ActivationListener {
     private static final String TAG = "[NotifGlass][Session]";
 
     private final WeakReference<View> stackRef;
     private final WeakReference<ViewGroup> parentRef;
     private final NotificationGlassNodeCollector collector;
-    private final NotificationVendorMaterialController materialController;
+    private final LegacyNotificationVendorMaterialController materialController;
     private final NotificationGlassActivityState activityState;
     private final NotificationPassBlurAuthorityState authorityState;
     private final NotificationPassBlurAuthorityState.Listener authorityListener;
@@ -42,7 +42,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
             View stack,
             ViewGroup parent,
             NotificationGlassNodeCollector collector,
-            NotificationVendorMaterialController materialController,
+            LegacyNotificationVendorMaterialController materialController,
             NotificationGlassActivityState activityState,
             NotificationPassBlurAuthorityState authorityState) {
         this.stackRef = new WeakReference<>(stack);

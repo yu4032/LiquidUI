@@ -12,13 +12,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.WeakHashMap;
 
-/** UI-thread authority that maps every attached notification row to one shared NSSL session. */
+/** Dormant legacy UI-thread runtime retained for a future Prismal pass-texture integration. */
 final class NotificationGlassRuntime {
     private static final String TAG = "[NotifGlass][Runtime]";
 
     private final Class<?> stackClass;
     private final NotificationGlassNodeCollector collector;
-    private final NotificationVendorMaterialController materialControllerPrototype;
+    private final LegacyNotificationVendorMaterialController materialControllerPrototype;
     private final NotificationGlassActivityState activityState;
     private final NotificationPassBlurAuthorityState authorityState;
     private final WeakHashMap<View, NotificationGlassSession> sessions = new WeakHashMap<>();
@@ -28,7 +28,7 @@ final class NotificationGlassRuntime {
     NotificationGlassRuntime(
             Class<?> stackClass,
             NotificationGlassNodeCollector collector,
-            NotificationVendorMaterialController materialController,
+            LegacyNotificationVendorMaterialController materialController,
             NotificationGlassActivityState activityState,
             NotificationPassBlurAuthorityState authorityState) {
         this.stackClass = stackClass;
