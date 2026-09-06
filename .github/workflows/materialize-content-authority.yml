@@ -1,0 +1,45 @@
+name: Materialize lock wallpaper content authority
+on:
+  push:
+    branches:
+      - staging/content-authority-lock-wallpaper-20260906
+permissions:
+  contents: write
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply exact content-authority patch
+        run: |
+          base64 -d .content-authority.patch.gz.b64 > /tmp/content-authority.patch.gz
+          gzip -dc /tmp/content-authority.patch.gz > /tmp/content-authority.patch
+          git apply --check /tmp/content-authority.patch
+          git apply /tmp/content-authority.patch
+      - name: Include content-authority state in pure-Java contracts
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/test-contracts.sh')
+          text = path.read_text()
+          old = 'NotificationPassBlurSourceState.java ProducerRecreateReadinessState.java'
+          new = 'NotificationPassBlurSourceState.java NotificationPassBlurContentAuthorityState.java ProducerRecreateReadinessState.java'
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one PURE_MAIN insertion point')
+          path.write_text(text.replace(old, new))
+          PY
+      - name: Run contracts
+        run: ./scripts/test-contracts.sh
+      - name: Run Android build
+        run: ./gradlew testDebugUnitTest assembleDebug --stacktrace
+      - name: Materialize clean tree
+        run: |
+          rm .content-authority.patch.gz.b64
+          rm .github/workflows/materialize-content-authority.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: exclude lock wallpaper from unlocked notification PassBlur'
+          git push
