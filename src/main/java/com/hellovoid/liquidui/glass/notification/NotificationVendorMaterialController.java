@@ -15,18 +15,22 @@ final class NotificationVendorMaterialController {
     private static final String TAG = "[NotifGlass][Material]";
 
     void observeSystemMaterial(View target, Object row, int[] blendColors, float blendRatio) {
-        if (target == null || row == null) return;
+        if (target == null) return;
         log("system-material target=" + target.getClass().getName()
-                + " row=" + row.getClass().getName()
+                + " row=" + (row == null ? "<none>" : row.getClass().getName())
                 + " colors=" + (blendColors == null ? 0 : blendColors.length)
                 + " ratio=" + blendRatio);
     }
 
     private static void log(String message) {
+        String formatted = LiquidUiLog.format(TAG + " " + message);
+        // libxposed module logs are not guaranteed to appear in adb logcat. Mirror notification
+        // authority diagnostics directly so device-side validation has an unambiguous channel.
+        android.util.Log.i("LiquidUI", formatted);
         try {
-            Api101Bridge.log(LiquidUiLog.format(TAG + " " + message));
+            Api101Bridge.log(formatted);
         } catch (Throwable ignored) {
-            android.util.Log.i("LiquidUI", "[LUI]" + TAG + " " + message);
+            // The direct logcat record above is the fallback authority for this diagnostic path.
         }
     }
 }
