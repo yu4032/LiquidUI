@@ -44,6 +44,10 @@ final class NotificationGlassNodeCollector {
         this.expandHeightField = accessible(expandHeightField);
     }
 
+    boolean isRow(Object value) {
+        return rowClass.isInstance(value);
+    }
+
     Object backgroundView(Object row) throws IllegalAccessException {
         return rowClass.isInstance(row) ? backgroundNormalField.get(row) : null;
     }
