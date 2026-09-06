@@ -38,6 +38,19 @@ public final class FrameworkPassBlurProbeHook implements SystemUiHook {
         try {
             Class<?> viewClass = TargetClassResolver.require(classLoader, FRAMEWORK_VIEW);
             Class<?> notificationPanelClass = TargetClassResolver.require(classLoader, NOTIFICATION_PANEL);
+
+            Method onAttachedToWindow = viewClass.getDeclaredMethod("onAttachedToWindow");
+            onAttachedToWindow.setAccessible(true);
+            backend.intercept(
+                    onAttachedToWindow,
+                    BeforeMethodHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> {
+                        if (notificationPanelClass.isInstance(thisObject)
+                                && thisObject instanceof View panelView) {
+                            FrameworkPassBlurProbe.inspectIfGenerationChanged(panelView);
+                        }
+                    });
+
             Method setPassWindowBlurEnabled = viewClass.getDeclaredMethod(
                     "setPassWindowBlurEnabled", boolean.class);
             setPassWindowBlurEnabled.setAccessible(true);

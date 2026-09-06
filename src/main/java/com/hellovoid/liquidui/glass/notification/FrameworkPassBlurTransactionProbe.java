@@ -60,6 +60,7 @@ final class FrameworkPassBlurTransactionProbe {
         lastProducerIdentity = producerIdentity;
         logEvent(seq, "SetPassBlurSurface",
                 "producer=" + describe(producer), changed);
+        if (changed) FrameworkPassBlurProbe.onMatchingShadeTransaction();
     }
 
     static void observeSetUpdateTextureFlag(Object transaction, Object[] args) {
@@ -76,6 +77,7 @@ final class FrameworkPassBlurTransactionProbe {
         long seq = sequence.incrementAndGet();
         logEvent(seq, "setUpdateTextureFlag",
                 "enabled=" + enabled + " scale=" + scale, changed);
+        if (changed) FrameworkPassBlurProbe.onMatchingShadeTransaction();
     }
 
     private static boolean matchesShadeRoot(Object candidate) {
