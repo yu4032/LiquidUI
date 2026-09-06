@@ -15,22 +15,19 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Read-only observer for HyperOS' existing notification PassBlur/background-blur consumer.
+ * Read-only observer for HyperOS' framework-owned NotificationShade texture consumers.
  *
- * The exact SystemUI target injects a full-screen ShadeBackgroundView into
- * SharedNotificationContainer. HyperOS already owns the notification container's PassBlur texture
- * lifecycle, so this hook observes both exact participants instead of registering a second
- * consumer or treating the callback integer as a GLES texture before its semantics/context are
- * proven on-device.
+ * Do not guess which SystemUI child owns the callback. Observe ViewRootImpl's actual
+ * addTextureView/clearTextureView registrations and every View#setTextureAvailable callback whose
+ * root is the exact NotificationShadeWindowView. No framework consumer is created or mutated here.
  */
 public final class FrameworkPassBlurViewConsumerHook implements SystemUiHook {
     public static final String HOOK_ID = "notification.framework-passblur-view-consumer-probe";
     private static final String TARGET_PROFILE = "systemui-001";
     private static final String FRAMEWORK_VIEW = "android.view.View";
-    private static final String SHADE_BACKGROUND_VIEW =
-            "com.miui.systemui.shade.ShadeBackgroundView";
-    private static final String SHARED_NOTIFICATION_CONTAINER =
-            "com.android.systemui.statusbar.notification.stack.ui.view.SharedNotificationContainer";
+    private static final String VIEW_ROOT_IMPL = "android.view.ViewRootImpl";
+    private static final String SHADE_WINDOW =
+            "com.android.systemui.shade.NotificationShadeWindowView";
     private static final String TAG = "[NotifGlass][FrameworkPB][Consumer]";
     private static final AtomicLong SEQUENCE = new AtomicLong();
 
@@ -51,53 +48,57 @@ public final class FrameworkPassBlurViewConsumerHook implements SystemUiHook {
         }
         try {
             Class<?> viewClass = TargetClassResolver.require(classLoader, FRAMEWORK_VIEW);
-            Class<?> shadeBackgroundClass =
-                    TargetClassResolver.require(classLoader, SHADE_BACKGROUND_VIEW);
-            Class<?> sharedNotificationContainerClass =
-                    TargetClassResolver.require(classLoader, SHARED_NOTIFICATION_CONTAINER);
+            Class<?> viewRootImplClass = TargetClassResolver.require(classLoader, VIEW_ROOT_IMPL);
+            Class<?> shadeWindowClass = TargetClassResolver.require(classLoader, SHADE_WINDOW);
+
             Method setTextureAvailable = viewClass.getDeclaredMethod(
                     "setTextureAvailable", boolean.class, int.class, float.class);
             Method getPassWindowBlurEnabled =
                     viewClass.getDeclaredMethod("getPassWindowBlurEnabled");
             Method getPassTextureScale = viewClass.getDeclaredMethod("getPassTextureScale");
+            Method addTextureView = viewRootImplClass.getDeclaredMethod("addTextureView", View.class);
+            Method clearTextureView = viewRootImplClass.getDeclaredMethod("clearTextureView", View.class);
+            Method getView = viewRootImplClass.getDeclaredMethod("getView");
             setTextureAvailable.setAccessible(true);
             getPassWindowBlurEnabled.setAccessible(true);
             getPassTextureScale.setAccessible(true);
+            addTextureView.setAccessible(true);
+            clearTextureView.setAccessible(true);
+            getView.setAccessible(true);
 
+            backend.intercept(
+                    addTextureView,
+                    BeforeMethodHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> observeRegistration(
+                            "consumer-register", thisObject, args, getView, shadeWindowClass,
+                            getPassWindowBlurEnabled, getPassTextureScale));
+            backend.intercept(
+                    clearTextureView,
+                    BeforeMethodHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> observeRegistration(
+                            "consumer-clear", thisObject, args, getView, shadeWindowClass,
+                            getPassWindowBlurEnabled, getPassTextureScale));
             backend.intercept(
                     setTextureAvailable,
                     BeforeMethodHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> {
-                        if ((!shadeBackgroundClass.isInstance(thisObject)
-                                && !sharedNotificationContainerClass.isInstance(thisObject))
-                                || !(thisObject instanceof View view)
+                        if (!(thisObject instanceof View view)
+                                || !isShadeRoot(view, shadeWindowClass)
                                 || args.length < 3
                                 || !(args[0] instanceof Boolean available)
                                 || !(args[1] instanceof Number value)
                                 || !(args[2] instanceof Number scale)) {
                             return;
                         }
-                        boolean passEnabled = false;
-                        float configuredScale = Float.NaN;
-                        try {
-                            Object enabled = getPassWindowBlurEnabled.invoke(thisObject);
-                            if (enabled instanceof Boolean flag) passEnabled = flag;
-                        } catch (Throwable ignored) {}
-                        try {
-                            Object configured = getPassTextureScale.invoke(thisObject);
-                            if (configured instanceof Number number) {
-                                configuredScale = number.floatValue();
-                            }
-                        } catch (Throwable ignored) {}
                         long sequence = SEQUENCE.incrementAndGet();
                         log("sequence=" + sequence
-                                + " view=" + view.getClass().getName()
-                                + "@" + Integer.toHexString(System.identityHashCode(view))
+                                + " op=texture-callback"
+                                + " view=" + describeView(view)
                                 + " available=" + available
                                 + " value=" + value.intValue()
                                 + " scale=" + scale.floatValue()
-                                + " passEnabled=" + passEnabled
-                                + " configuredScale=" + configuredScale
+                                + " passEnabled=" + passEnabled(view, getPassWindowBlurEnabled)
+                                + " configuredScale=" + passScale(view, getPassTextureScale)
                                 + " attached=" + view.isAttachedToWindow()
                                 + " shown=" + view.isShown()
                                 + " root=" + rootIdentity(view)
@@ -113,12 +114,68 @@ public final class FrameworkPassBlurViewConsumerHook implements SystemUiHook {
         }
     }
 
+    private static void observeRegistration(
+            String operation,
+            Object viewRoot,
+            Object[] args,
+            Method getView,
+            Class<?> shadeWindowClass,
+            Method getPassWindowBlurEnabled,
+            Method getPassTextureScale) {
+        try {
+            Object rootObject = getView.invoke(viewRoot);
+            if (!(rootObject instanceof View root) || !shadeWindowClass.isInstance(root)) return;
+            if (args == null || args.length == 0 || !(args[0] instanceof View consumer)) return;
+            long sequence = SEQUENCE.incrementAndGet();
+            log("sequence=" + sequence
+                    + " op=" + operation
+                    + " view=" + describeView(consumer)
+                    + " passEnabled=" + passEnabled(consumer, getPassWindowBlurEnabled)
+                    + " configuredScale=" + passScale(consumer, getPassTextureScale)
+                    + " attached=" + consumer.isAttachedToWindow()
+                    + " shown=" + consumer.isShown()
+                    + " root=" + describeView(root)
+                    + " thread=" + Thread.currentThread().getName());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean isShadeRoot(View view, Class<?> shadeWindowClass) {
+        try {
+            View root = view.getRootView();
+            return root != null && shadeWindowClass.isInstance(root);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean passEnabled(View view, Method getter) {
+        try {
+            Object enabled = getter.invoke(view);
+            return enabled instanceof Boolean && (Boolean) enabled;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static float passScale(View view, Method getter) {
+        try {
+            Object configured = getter.invoke(view);
+            return configured instanceof Number ? ((Number) configured).floatValue() : Float.NaN;
+        } catch (Throwable ignored) {
+            return Float.NaN;
+        }
+    }
+
+    private static String describeView(View view) {
+        return view.getClass().getName() + "@"
+                + Integer.toHexString(System.identityHashCode(view));
+    }
+
     private static String rootIdentity(View view) {
         try {
             View root = view.getRootView();
-            return root == null ? "null"
-                    : root.getClass().getName() + "@"
-                    + Integer.toHexString(System.identityHashCode(root));
+            return root == null ? "null" : describeView(root);
         } catch (Throwable ignored) {
             return "error";
         }
