@@ -87,14 +87,20 @@ public class FrameworkPassBlurProbeContractTest {
                 "src/main/java/com/hellovoid/liquidui/glass/notification/FrameworkPassBlurProbe.java"));
         String transaction = Files.readString(Path.of(
                 "src/main/java/com/hellovoid/liquidui/glass/notification/FrameworkPassBlurTransactionProbe.java"));
+        String session = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java"));
 
         assertTrue(hook.contains("onAttachedToWindow"));
         assertTrue(hook.contains("FrameworkPassBlurProbe.inspectIfGenerationChanged"));
         assertTrue(graph.contains("inspectIfGenerationChanged"));
         assertTrue(graph.contains("probeGeneration"));
         assertTrue(graph.contains("inspectionFingerprint"));
-        assertTrue(graph.contains("removeTextureView"));
+        assertTrue(graph.toLowerCase().contains("removetextureview"));
         assertTrue(transaction.contains("FrameworkPassBlurProbe.onMatchingShadeTransaction"));
+        // The already-attached notification stack is the guaranteed Shade-root authority. The
+        // NotificationPanelView attach hook is only an auxiliary early trigger because the exact
+        // target may inherit or override attach lifecycle at a different declaring class.
+        assertTrue(session.contains("FrameworkPassBlurProbe.inspectIfGenerationChanged(stack)"));
         assertFalse(graph.contains("addTextureView.invoke"));
         assertFalse(graph.contains("removeTextureView.invoke"));
     }
