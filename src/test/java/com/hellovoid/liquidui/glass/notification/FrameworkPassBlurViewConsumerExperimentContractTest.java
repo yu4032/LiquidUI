@@ -41,8 +41,8 @@ public class FrameworkPassBlurViewConsumerExperimentContractTest {
         assertTrue(hook.contains("SHADE_BACKGROUND_VIEW"));
         assertTrue(hook.contains("com.miui.systemui.shade.ShadeBackgroundView"));
         assertTrue(hook.contains("shadeBackgroundClass"));
-        assertTrue(hook.contains("isShadeBlurTarget(target, shadeWindowClass, notificationPanelClass, shadeBackgroundClass)"));
-        assertTrue(hook.contains("isShadeBlendTarget(target, shadeWindowClass, notificationPanelClass, shadeBackgroundClass)"));
+        assertTrue(hook.contains("|| shadeBackgroundClass.isInstance(value)"));
+        assertTrue(hook.contains("if (shadeBackgroundClass.isInstance(value)) return true;"));
     }
 
     @Test
