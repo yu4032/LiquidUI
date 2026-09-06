@@ -29,10 +29,15 @@ public class NotificationNativePassBlurSourceExperimentTest {
     }
 
     @Test
-    public void injectorViewIsResolvedFromSuperclassContract() throws Exception {
+    public void injectorAndBackgroundFieldsAreResolvedFromSuperclassContracts() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        // Supplied MiuiSystemUI.apk:
+        // ExpandableViewInjector declares public final `view`.
+        // ActivatableNotificationView declares public `mBackgroundNormal`.
         assertTrue(hook.contains("injectorClass.getField(\"view\")"));
+        assertTrue(hook.contains("rowClass.getField(\"mBackgroundNormal\")"));
         assertFalse(hook.contains("injectorClass.getDeclaredField(\"view\")"));
+        assertFalse(hook.contains("rowClass.getDeclaredField(\"mBackgroundNormal\")"));
     }
 
     @Test
