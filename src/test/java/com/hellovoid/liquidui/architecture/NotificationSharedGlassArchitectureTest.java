@@ -46,13 +46,22 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
-    public void roundMagnitudeAndFinalRoundStateAreSeparated() throws Exception {
+    public void topBottomRadiusAuthorityRemainsOnRowRoundness() throws Exception {
         String collector = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java");
         String registry = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationMaterialTargetRegistry.java");
+
+        // Target SystemUI's setRoundRect(View, boolean, boolean) flags control outline geometry
+        // and flip-radius selection; they are not top/bottom rounded flags. Per-edge magnitudes
+        // remain getTopCornerRadius/getBottomCornerRadius -> NotificationBackgroundView#setRadius.
         assertTrue(collector.contains("topCornerRadius.invoke(rowObject)"));
         assertTrue(collector.contains("bottomCornerRadius.invoke(rowObject)"));
-        assertTrue(collector.contains("roundState.topRounded()"));
-        assertTrue(collector.contains("roundState.bottomRounded()"));
+        assertFalse(collector.contains("roundState.topRounded()"));
+        assertFalse(collector.contains("roundState.bottomRounded()"));
+        assertFalse(registry.contains("topRounded"));
+        assertFalse(registry.contains("bottomRounded"));
+        assertTrue(registry.contains("OutlineState"));
+        assertTrue(registry.contains("useActualHeightGeometry"));
+        assertTrue(registry.contains("useFlipRadius"));
         assertTrue(registry.contains("observeRoundRect"));
     }
 }
