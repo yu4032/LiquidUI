@@ -10,9 +10,10 @@ import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 
-/** Applies custom element material to SystemUI's exact notification background target. */
+/** Applies custom material and a diagnostic native PassBlur backdrop to the exact notification target. */
 final class NotificationVendorMaterialController {
     private static final String TAG = "[NotifGlass][Material]";
+    private static final float DIAGNOSTIC_PASS_BLUR_RADIUS_DP = 20.0f;
 
     private static final int[] LIGHT_MATERIAL_COLORS = {
             -428575628, -1722658222, 869388753
@@ -39,27 +40,30 @@ final class NotificationVendorMaterialController {
     private final Method clearMiBackgroundBlendColor;
     private final Method setMiBackgroundBlendColors;
     private final Method setMiBloomStroke;
+    private final Method setMiBackgroundBlurMode;
+    private final Method setMiBackgroundBlurRadius;
+    private final Method setPassWindowBlurEnabled;
 
     NotificationVendorMaterialController(
             Method setMixEffectEnabled,
             Method setMiViewBlurMode,
             Method clearMiBackgroundBlendColor,
             Method setMiBackgroundBlendColors,
-            Method setMiBloomStroke) {
+            Method setMiBloomStroke,
+            Method setMiBackgroundBlurMode,
+            Method setMiBackgroundBlurRadius,
+            Method setPassWindowBlurEnabled) {
         this.setMixEffectEnabled = setMixEffectEnabled;
         this.setMiViewBlurMode = setMiViewBlurMode;
         this.clearMiBackgroundBlendColor = clearMiBackgroundBlendColor;
         this.setMiBackgroundBlendColors = setMiBackgroundBlendColors;
         this.setMiBloomStroke = setMiBloomStroke;
+        this.setMiBackgroundBlurMode = setMiBackgroundBlurMode;
+        this.setMiBackgroundBlurRadius = setMiBackgroundBlurRadius;
+        this.setPassWindowBlurEnabled = setPassWindowBlurEnabled;
     }
 
-    /**
-     * Remove SystemUI's default notification element material from mBackgroundNormal.
-     *
-     * Supplied MiuiSystemUI.apk NotificationUtil#applyElementViewBlend only owns two states on this
-     * exact target: setMiViewBlurMode(1) and background blend colors. Container background blur and
-     * pass-window blur are separate authorities and are intentionally not touched here.
-     */
+    /** Remove SystemUI's default notification element blend before LiquidUI owns this target. */
     void suppressSystemUiElementMaterial(View target) {
         if (target == null) return;
         try {
@@ -79,6 +83,7 @@ final class NotificationVendorMaterialController {
         int[] materialModes = light ? LIGHT_MATERIAL_MODES : DARK_MATERIAL_MODES;
 
         try {
+            enableDiagnosticCardBackdrop(target);
             setMixEffectEnabled.invoke(target, true);
             setMiViewBlurMode.invoke(target, 1);
             setMiBackgroundBlendColors.invoke(
@@ -96,6 +101,23 @@ final class NotificationVendorMaterialController {
         } catch (Throwable error) {
             logError("element-material failed target=" + target.getClass().getName(), error);
         }
+    }
+
+    /**
+     * Supplied MiuiSystemUI.apk has two verified native backdrop tuples:
+     * NotificationUtil#applyContainerViewBlur and ElementSurfaceModel#updateBlurContainer both use
+     * backgroundBlurMode=1 + a positive blur radius + passWindowBlur=true. The production SystemUI
+     * radius is 100dp; this diagnostic intentionally uses 20dp so backdrop motion remains visible.
+     */
+    private void enableDiagnosticCardBackdrop(View target) throws Exception {
+        int radiusPx = Math.max(1, Math.round(
+                DIAGNOSTIC_PASS_BLUR_RADIUS_DP * target.getResources().getDisplayMetrics().density));
+        setMiBackgroundBlurMode.invoke(target, 1);
+        setMiBackgroundBlurRadius.invoke(target, radiusPx);
+        setPassWindowBlurEnabled.invoke(target, true);
+        log("enabled card pass-blur target=" + target.getClass().getName()
+                + " radiusDp=" + DIAGNOSTIC_PASS_BLUR_RADIUS_DP
+                + " radiusPx=" + radiusPx);
     }
 
     private static boolean isLight(View target) {
