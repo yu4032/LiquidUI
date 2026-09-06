@@ -1,5 +1,7 @@
 package com.hellovoid.liquidui.glass.notification;
 
+import android.graphics.RenderEffect;
+import android.graphics.RenderNode;
 import android.view.View;
 
 import com.hellovoid.liquidui.hook.AfterMethodHookBackend;
@@ -14,6 +16,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -148,10 +151,11 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     setViewBackgroundBlendColors,
                     setMiBloomStroke);
 
+            logNativeRefractionCapabilityProbe();
             android.util.Log.i("LiquidUI",
                     "[LUI][NotifGlass][Hook] resolved notification glass authority "
                             + "viewOwner=ExpandableViewInjector backgroundOwner=ActivatableNotificationView "
-                            + "bloom=" + (setMiBloomStroke != null));
+                            + "bloomApi=" + (setMiBloomStroke != null) + " bloomApplied=false");
         } catch (ClassNotFoundException | NoSuchMethodException | NoSuchFieldException error) {
             android.util.Log.e("LiquidUI",
                     "[LUI][NotifGlass][Hook] notification glass contract missing", error);
@@ -248,6 +252,53 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             return HookInstallResult.failed(HOOK_ID,
                     "notification glass hook registration failed", error);
         }
+    }
+
+    private static void logNativeRefractionCapabilityProbe() {
+        int total = 0;
+        int explicit = 0;
+        Class<?>[] owners = {View.class, RenderNode.class, RenderEffect.class};
+        for (Class<?> owner : owners) {
+            int ownerCount = 0;
+            try {
+                for (Method method : owner.getDeclaredMethods()) {
+                    String name = method.getName().toLowerCase(Locale.ROOT);
+                    boolean explicitRefraction = name.contains("glass")
+                            || name.contains("refract")
+                            || name.contains("distort")
+                            || name.contains("material");
+                    boolean relevantBlur = name.contains("blur") && (
+                            name.contains("background")
+                                    || name.contains("window")
+                                    || name.contains("view")
+                                    || name.contains("pass"));
+                    boolean relevant = explicitRefraction || relevantBlur || name.contains("mixeffect");
+                    if (!relevant) continue;
+                    total++;
+                    ownerCount++;
+                    if (explicitRefraction) explicit++;
+                    android.util.Log.i("LiquidUI",
+                            "[LUI][NotifGlass][Probe] candidate owner=" + owner.getName()
+                                    + " signature=" + method);
+                    if (ownerCount >= 48) {
+                        android.util.Log.i("LiquidUI",
+                                "[LUI][NotifGlass][Probe] candidate owner=" + owner.getName()
+                                        + " truncated=true");
+                        break;
+                    }
+                }
+            } catch (Throwable error) {
+                android.util.Log.e("LiquidUI",
+                        "[LUI][NotifGlass][Probe] enumerate failed owner=" + owner.getName(), error);
+            }
+            if (ownerCount == 0) {
+                android.util.Log.i("LiquidUI",
+                        "[LUI][NotifGlass][Probe] candidate owner=" + owner.getName() + " none=true");
+            }
+        }
+        android.util.Log.i("LiquidUI",
+                "[LUI][NotifGlass][Probe] summary candidates=" + total
+                        + " explicitRefraction=" + explicit);
     }
 
     private static boolean isShadeBlurTarget(
