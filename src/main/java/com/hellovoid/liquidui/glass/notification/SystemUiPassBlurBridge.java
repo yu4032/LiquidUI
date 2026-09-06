@@ -29,6 +29,8 @@ final class SystemUiPassBlurBridge {
         final int sourceLayerId;
         final long sourceGeneration;
         final long endpointGeneration;
+        final long contentGeneration;
+        final boolean excludeLockWallpaper;
         boolean bound = true;
         boolean updatesEnabled = true;
 
@@ -43,7 +45,9 @@ final class SystemUiPassBlurBridge {
                 int surfaceSequenceId,
                 int sourceLayerId,
                 long sourceGeneration,
-                long endpointGeneration) {
+                long endpointGeneration,
+                long contentGeneration,
+                boolean excludeLockWallpaper) {
             this.sourceSurface = sourceSurface;
             this.hostRootSurface = hostRootSurface;
             this.setPassBlurSurface = setPassBlurSurface;
@@ -56,6 +60,8 @@ final class SystemUiPassBlurBridge {
             this.sourceLayerId = sourceLayerId;
             this.sourceGeneration = sourceGeneration;
             this.endpointGeneration = endpointGeneration;
+            this.contentGeneration = contentGeneration;
+            this.excludeLockWallpaper = excludeLockWallpaper;
         }
     }
 
@@ -65,7 +71,8 @@ final class SystemUiPassBlurBridge {
                         SurfaceControl sourceSurface,
                         long sourceGeneration,
                         Surface producerSurface,
-                        long endpointGeneration) {
+                        long endpointGeneration,
+                        NotificationPassBlurContentAuthorityState.Snapshot contentAuthority) {
         if (materialHost == null || sourceSurface == null || producerSurface == null) return null;
         if (!sourceSurface.isValid()) return null;
         try {
@@ -92,12 +99,24 @@ final class SystemUiPassBlurBridge {
 
             String sourceName = surfaceName(sourceSurface);
             String hostRootName = surfaceName(hostRootSurface);
-            String[] exclusions = new String[]{
-                    hostRootName,
-                    "NavigationBar",
-                    "StatusBar",
-                    "GestureStub"
-            };
+            boolean excludeLockWallpaper = contentAuthority != null
+                    && contentAuthority.excludeLockWallpaper();
+            boolean keyguardShowing = contentAuthority != null && contentAuthority.keyguardShowing();
+            long contentGeneration = contentAuthority != null ? contentAuthority.generation() : 0L;
+            String[] exclusions = excludeLockWallpaper
+                    ? new String[]{
+                            hostRootName,
+                            "NavigationBar",
+                            "StatusBar",
+                            "GestureStub",
+                            "Wallpaper BBQ wrapper-lock"
+                    }
+                    : new String[]{
+                            hostRootName,
+                            "NavigationBar",
+                            "StatusBar",
+                            "GestureStub"
+                    };
             try (SurfaceControl.Transaction transaction = new SurfaceControl.Transaction()) {
                 setMiBlurWinExc.invoke(transaction, hostRootSurface, (Object) exclusions);
                 setPassBlurSurface.invoke(transaction, hostRootSurface, producerSurface);
@@ -117,7 +136,9 @@ final class SystemUiPassBlurBridge {
                     readSurfaceSequenceId(viewRoot),
                     surfaceLayerId(sourceSurface),
                     sourceGeneration,
-                    endpointGeneration);
+                    endpointGeneration,
+                    contentGeneration,
+                    excludeLockWallpaper);
             log("bound source=" + sourceName
                     + " sourceLayer=" + binding.sourceLayerId
                     + " sourceGen=" + sourceGeneration
@@ -125,6 +146,9 @@ final class SystemUiPassBlurBridge {
                     + " surfaceSeq=" + binding.surfaceSequenceId
                     + " viewRoot=" + binding.viewRootIdentity
                     + " endpointGen=" + endpointGeneration
+                    + " contentGen=" + contentGeneration
+                    + " keyguardShowing=" + keyguardShowing
+                    + " excludeLockWallpaper=" + excludeLockWallpaper
                     + " sourceAuthority=NotificationShadeViewRoot"
                     + " lifecycleAuthority=RootTaskDisplayArea"
                     + " exclusions=" + Arrays.toString(exclusions));

@@ -174,6 +174,7 @@ final class NotificationPassBlurTextureView extends TextureView
 
     private final WeakReference<View> materialHostRef;
     private final NotificationPassBlurSourceState sourceState;
+    private final NotificationPassBlurContentAuthorityState contentAuthorityState;
     private final int displayId;
     private final NotificationGlassSceneState sceneState;
     private final NotificationGlassCompositor compositor;
@@ -273,6 +274,7 @@ final class NotificationPassBlurTextureView extends TextureView
             ActivationListener activationListener,
             boolean vendorPassBlurEnabled,
             NotificationPassBlurSourceState sourceState,
+            NotificationPassBlurContentAuthorityState contentAuthorityState,
             int displayId) {
         super(context);
         materialHostRef = new WeakReference<>(materialHost);
@@ -281,6 +283,7 @@ final class NotificationPassBlurTextureView extends TextureView
         this.activationListener = activationListener;
         this.vendorPassBlurEnabled = vendorPassBlurEnabled;
         this.sourceState = sourceState;
+        this.contentAuthorityState = contentAuthorityState;
         this.displayId = displayId;
         portablePrismalParams = NotificationGlassMaterial.defaults(
                 context.getResources().getDisplayMetrics().density);
@@ -373,6 +376,18 @@ final class NotificationPassBlurTextureView extends TextureView
                 requestProducerRecreate("source-change:" + reason);
             }
         });
+    }
+
+    void onPassBlurContentAuthorityChanged(
+            NotificationPassBlurContentAuthorityState.Snapshot snapshot) {
+        if (shuttingDown || snapshot == null) return;
+        SystemUiPassBlurBridge.Binding current = binding;
+        log(" content authority changed keyguardShowing=" + snapshot.keyguardShowing()
+                + " excludeLockWallpaper=" + snapshot.excludeLockWallpaper()
+                + " generation=" + snapshot.generation());
+        if (current == null || !current.bound) return;
+        if (current.contentGeneration == snapshot.generation()) return;
+        rebindProducer("content-authority");
     }
 
     void rebindProducer(String reason) {
@@ -1029,8 +1044,11 @@ final class NotificationPassBlurTextureView extends TextureView
             return;
         }
 
+        NotificationPassBlurContentAuthorityState.Snapshot contentSnapshot =
+                contentAuthorityState.snapshot();
         SystemUiPassBlurBridge.Binding next = SystemUiPassBlurBridge.bind(
-                materialHost, sourceSurface, sourceGeneration, producer, endpointGeneration);
+                materialHost, sourceSurface, sourceGeneration, producer, endpointGeneration,
+                contentSnapshot);
         if (next == null) {
             retryBind(attempt, "framework bind returned null");
             return;
@@ -1107,6 +1125,12 @@ final class NotificationPassBlurTextureView extends TextureView
         ProducerGeometry geometry = readSurfaceGeometry(materialHost);
         if (geometry == null || geometry.rootSurface == null || !geometry.rootSurface.isValid()) return;
         NotificationPassBlurSourceState.Snapshot sourceSnapshot = sourceState.snapshot(displayId);
+        NotificationPassBlurContentAuthorityState.Snapshot contentSnapshot =
+                contentAuthorityState.snapshot();
+        if (binding.contentGeneration != contentSnapshot.generation()) {
+            rebindProducer("content-authority-generation-changed");
+            return;
+        }
         if (!binding.hostRootSurface.isValid()
                 || !isSameSurface(binding.hostRootSurface, geometry.rootSurface)) {
             rebindProducer("host-root-changed");

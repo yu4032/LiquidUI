@@ -50,6 +50,10 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
     private static final String ROOT_TASK_DISPLAY_AREA =
             "com.android.wm.shell.RootTaskDisplayAreaOrganizer";
     private static final String DISPLAY_AREA_INFO = "android.window.DisplayAreaInfo";
+    private static final String SHADE_WINDOW_CONTROLLER_IMPL =
+            "com.android.systemui.shade.NotificationShadeWindowControllerImpl";
+    private static final String SHADE_WINDOW_STATE =
+            "com.android.systemui.shade.NotificationShadeWindowState";
 
     private final BeforeMethodHookBackend backend;
     private final ArgumentRewriteHookBackend argumentBackend;
@@ -81,6 +85,8 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                 new NotificationPassBlurAuthorityState();
         final NotificationPassBlurSourceState sourceState =
                 new NotificationPassBlurSourceState();
+        final NotificationPassBlurContentAuthorityState contentAuthorityState =
+                new NotificationPassBlurContentAuthorityState();
         final Method rowAttached;
         final Method rowDetached;
         final List<Method> wrapperReinflated;
@@ -92,7 +98,9 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
         final Method viewRootGetView;
         final Method displayAreaAppeared;
         final Method displayAreaVanished;
+        final Method shadeWindowApply;
         final Field displayAreaDisplayId;
+        final Field shadeWindowKeyguardShowing;
         final Field blurProviderView;
         final Field blurProviderPassBlur;
         final Field blendBackgroundView;
@@ -117,6 +125,10 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             Class<?> frameworkViewClass = TargetClassResolver.require(classLoader, FRAMEWORK_VIEW);
             Class<?> rootTaskDisplayAreaClass = TargetClassResolver.require(classLoader, ROOT_TASK_DISPLAY_AREA);
             Class<?> displayAreaInfoClass = TargetClassResolver.require(classLoader, DISPLAY_AREA_INFO);
+            Class<?> shadeWindowControllerImplClass =
+                    TargetClassResolver.require(classLoader, SHADE_WINDOW_CONTROLLER_IMPL);
+            Class<?> shadeWindowStateClass =
+                    TargetClassResolver.require(classLoader, SHADE_WINDOW_STATE);
 
             rowAttached = accessible(rowClass.getDeclaredMethod("onAttachedToWindow"));
             rowDetached = accessible(rowClass.getDeclaredMethod("onDetachedFromWindow"));
@@ -163,6 +175,10 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             displayAreaVanished = accessible(rootTaskDisplayAreaClass.getDeclaredMethod(
                     "onDisplayAreaVanished", displayAreaInfoClass));
             displayAreaDisplayId = accessible(displayAreaInfoClass.getDeclaredField("displayId"));
+            shadeWindowApply = accessible(shadeWindowControllerImplClass.getDeclaredMethod(
+                    "apply", shadeWindowStateClass));
+            shadeWindowKeyguardShowing = accessible(
+                    shadeWindowStateClass.getDeclaredField("keyguardShowing"));
 
             NotificationGlassNodeCollector collector = new NotificationGlassNodeCollector(
                     rowClass,
@@ -185,7 +201,8 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                             disableBlur,
                             clearBlend);
             runtime = new NotificationGlassRuntime(
-                    stackClass, collector, materialController, activityState, authorityState, sourceState);
+                    stackClass, collector, materialController, activityState, authorityState,
+                    sourceState, contentAuthorityState);
         } catch (ClassNotFoundException | NoSuchMethodException | NoSuchFieldException error) {
             return HookInstallResult.unsupported(HOOK_ID, "exact notification glass contract missing: " + error);
         } catch (Throwable error) {
@@ -212,6 +229,15 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                         BeforeMethodHookBackend.PRIORITY_HIGHEST,
                         (thisObject, args) -> runtime.onWrapperObserved(thisObject))::unhook);
             }
+
+            rollbacks.add(backend.intercept(
+                    shadeWindowApply,
+                    BeforeMethodHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> {
+                        if (args.length == 0 || args[0] == null) return;
+                        contentAuthorityState.observe(
+                                shadeWindowKeyguardShowing.getBoolean(args[0]));
+                    })::unhook);
 
             rollbacks.add(backend.intercept(
                     displayAreaAppeared,

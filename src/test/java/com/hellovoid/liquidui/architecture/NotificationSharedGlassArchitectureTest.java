@@ -200,9 +200,10 @@ public class NotificationSharedGlassArchitectureTest {
         assertTrue(firstFrameBody.contains("suppressVendorMaterial()"));
 
         int vendorChange = session.indexOf("private void onVendorPassBlurChanged");
-        int sourceChange = session.indexOf("private void onPassBlurSourceChanged", vendorChange);
-        assertTrue(vendorChange >= 0 && sourceChange > vendorChange);
-        String vendorBody = session.substring(vendorChange, sourceChange);
+        int contentChange = session.indexOf("private void onContentAuthorityChanged", vendorChange);
+        int sourceChange = session.indexOf("private void onPassBlurSourceChanged", contentChange);
+        assertTrue(vendorChange >= 0 && contentChange > vendorChange && sourceChange > contentChange);
+        String vendorBody = session.substring(vendorChange, contentChange);
         assertTrue(vendorBody.contains("diagnostic only"));
         assertTrue(vendorBody.contains("setVendorPassBlurEnabled"));
         assertFalse(vendorBody.contains("active = false"));
@@ -295,4 +296,41 @@ public class NotificationSharedGlassArchitectureTest {
         }
         return count;
     }
+    @Test
+    public void contentAuthorityComesFromExactNotificationShadeWindowStateKeyguardShowing() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        assertTrue(hook.contains("com.android.systemui.shade.NotificationShadeWindowControllerImpl"));
+        assertTrue(hook.contains("com.android.systemui.shade.NotificationShadeWindowState"));
+        assertTrue(hook.contains("\"apply\", shadeWindowStateClass"));
+        assertTrue(hook.contains("getDeclaredField(\"keyguardShowing\")"));
+        assertTrue(hook.contains("contentAuthorityState.observe("));
+        assertFalse(hook.contains("isKeyguardShowingAndNotOccluded"));
+    }
+
+    @Test
+    public void unlockedShadeExcludesExactXiaomiLockWallpaperLayerOnlyByContentAuthority() throws Exception {
+        String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
+        String state = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurContentAuthorityState.java");
+        assertTrue(bridge.contains("Wallpaper BBQ wrapper-lock"));
+        assertTrue(bridge.contains("contentAuthority.excludeLockWallpaper()"));
+        assertTrue(bridge.contains("keyguardShowing="));
+        assertTrue(bridge.contains("excludeLockWallpaper="));
+        assertTrue(state.contains("return known && !keyguardShowing"));
+    }
+
+    @Test
+    public void keyguardContentGenerationForcesFreshPassBlurProducerBeforeHandoff() throws Exception {
+        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
+        assertTrue(session.contains("contentAuthorityState.addListener"));
+        assertTrue(session.contains("contentAuthorityState.removeListener"));
+        assertTrue(session.contains("renderer.onPassBlurContentAuthorityChanged(snapshot)"));
+        assertTrue(session.contains("materialController.restoreAll()"));
+        assertTrue(renderer.contains("rebindProducer(\"content-authority\")"));
+        assertTrue(renderer.contains("contentAuthorityState.snapshot()"));
+        assertTrue(renderer.contains("binding.contentGeneration != contentSnapshot.generation()"));
+        assertTrue(bridge.contains("final long contentGeneration"));
+    }
+
 }
