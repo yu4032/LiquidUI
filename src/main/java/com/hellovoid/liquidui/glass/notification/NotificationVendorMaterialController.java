@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class NotificationVendorMaterialController {
     private static final String TAG = "[NotifGlass][Material]";
     private static final float CARD_PASS_BLUR_RADIUS_DP = 2.0f;
+    private static final boolean PROBE_DISABLE_BLOOM_STROKE = true;
 
     private static final int[] LIGHT_MATERIAL_COLORS = {
             -428575628, -1722658222, 869388753
@@ -86,7 +87,7 @@ final class NotificationVendorMaterialController {
             setMiViewBlurMode.invoke(target, 1);
             setMiBackgroundBlendColors.invoke(
                     target, buildBlendConfig(materialColors, materialModes));
-            if (setMiBloomStroke != null) {
+            if (!PROBE_DISABLE_BLOOM_STROKE && setMiBloomStroke != null) {
                 setMiBloomStroke.invoke(target, (Object) scaledBloomStroke(target, light));
             }
             target.setClipToOutline(true);
@@ -110,7 +111,8 @@ final class NotificationVendorMaterialController {
             log("enabled card pass-blur target=" + target.getClass().getName()
                     + " radiusDp=" + CARD_PASS_BLUR_RADIUS_DP
                     + " radiusPx=" + radiusPx
-                    + " bloom=" + (setMiBloomStroke != null));
+                    + " bloomApi=" + (setMiBloomStroke != null)
+                    + " bloomApplied=" + (!PROBE_DISABLE_BLOOM_STROKE && setMiBloomStroke != null));
         }
     }
 
