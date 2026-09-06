@@ -12,6 +12,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
       - name: Apply exact content-authority patch
         run: |
           base64 -d .content-authority.patch.gz.b64 > /tmp/content-authority.patch.gz
@@ -59,8 +63,12 @@ jobs:
           PY
       - name: Run contracts
         run: ./scripts/test-contracts.sh
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: never
+          gradle-version: '9.6.1'
       - name: Run Android build
-        run: ./gradlew testDebugUnitTest assembleDebug --stacktrace
+        run: gradle testDebugUnitTest assembleDebug --stacktrace
       - name: Materialize clean tree
         run: |
           rm .content-authority.patch.gz.b64
