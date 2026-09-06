@@ -62,8 +62,8 @@ public class FrameworkPassBlurProbeContractTest {
 
         assertTrue(hook.contains("SetPassBlurSurface"));
         assertTrue(hook.contains("setUpdateTextureFlag"));
-        assertTrue(hook.contains("FrameworkPassBlurTransactionProbe.observeSetPassBlurSurface"));
-        assertTrue(hook.contains("FrameworkPassBlurTransactionProbe.observeSetUpdateTextureFlag"));
+        assertTrue(hook.contains("FrameworkPassBlurTransactionProbe::observeSetPassBlurSurface"));
+        assertTrue(hook.contains("FrameworkPassBlurTransactionProbe::observeSetUpdateTextureFlag"));
         assertTrue(graph.contains("FrameworkPassBlurTransactionProbe.registerShadeRoot"));
         assertTrue(probe.contains("[NotifGlass][FrameworkPB][TX]"));
         assertTrue(probe.contains("sequence"));
