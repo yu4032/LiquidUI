@@ -18,9 +18,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * Read-only observer for HyperOS' existing notification PassBlur/background-blur consumer.
  *
  * The exact SystemUI target injects a full-screen ShadeBackgroundView into
- * SharedNotificationContainer. HyperOS already owns that view's PassBlur texture lifecycle, so
- * this hook observes the framework callback instead of registering a second consumer or treating
- * the callback integer as a GLES texture before its semantics/context are proven on-device.
+ * SharedNotificationContainer. HyperOS already owns the notification container's PassBlur texture
+ * lifecycle, so this hook observes both exact participants instead of registering a second
+ * consumer or treating the callback integer as a GLES texture before its semantics/context are
+ * proven on-device.
  */
 public final class FrameworkPassBlurViewConsumerHook implements SystemUiHook {
     public static final String HOOK_ID = "notification.framework-passblur-view-consumer-probe";
@@ -28,6 +29,8 @@ public final class FrameworkPassBlurViewConsumerHook implements SystemUiHook {
     private static final String FRAMEWORK_VIEW = "android.view.View";
     private static final String SHADE_BACKGROUND_VIEW =
             "com.miui.systemui.shade.ShadeBackgroundView";
+    private static final String SHARED_NOTIFICATION_CONTAINER =
+            "com.android.systemui.statusbar.notification.stack.ui.view.SharedNotificationContainer";
     private static final String TAG = "[NotifGlass][FrameworkPB][Consumer]";
     private static final AtomicLong SEQUENCE = new AtomicLong();
 
@@ -50,6 +53,8 @@ public final class FrameworkPassBlurViewConsumerHook implements SystemUiHook {
             Class<?> viewClass = TargetClassResolver.require(classLoader, FRAMEWORK_VIEW);
             Class<?> shadeBackgroundClass =
                     TargetClassResolver.require(classLoader, SHADE_BACKGROUND_VIEW);
+            Class<?> sharedNotificationContainerClass =
+                    TargetClassResolver.require(classLoader, SHARED_NOTIFICATION_CONTAINER);
             Method setTextureAvailable = viewClass.getDeclaredMethod(
                     "setTextureAvailable", boolean.class, int.class, float.class);
             Method getPassWindowBlurEnabled =
@@ -63,7 +68,8 @@ public final class FrameworkPassBlurViewConsumerHook implements SystemUiHook {
                     setTextureAvailable,
                     BeforeMethodHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> {
-                        if (!shadeBackgroundClass.isInstance(thisObject)
+                        if ((!shadeBackgroundClass.isInstance(thisObject)
+                                && !sharedNotificationContainerClass.isInstance(thisObject))
                                 || !(thisObject instanceof View view)
                                 || args.length < 3
                                 || !(args[0] instanceof Boolean available)
