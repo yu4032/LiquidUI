@@ -9,11 +9,12 @@ import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Applies custom material and a diagnostic native PassBlur backdrop to the exact notification target. */
+/** Applies LiquidUI material and native PassBlur backdrop to the exact notification target. */
 final class NotificationVendorMaterialController {
     private static final String TAG = "[NotifGlass][Material]";
-    private static final float DIAGNOSTIC_PASS_BLUR_RADIUS_DP = 20.0f;
+    private static final float CARD_PASS_BLUR_RADIUS_DP = 24.0f;
 
     private static final int[] LIGHT_MATERIAL_COLORS = {
             -428575628, -1722658222, 869388753
@@ -43,6 +44,7 @@ final class NotificationVendorMaterialController {
     private final Method setMiBackgroundBlurMode;
     private final Method setMiBackgroundBlurRadius;
     private final Method setPassWindowBlurEnabled;
+    private final AtomicBoolean passBlurLogged = new AtomicBoolean();
 
     NotificationVendorMaterialController(
             Method setMixEffectEnabled,
@@ -66,7 +68,6 @@ final class NotificationVendorMaterialController {
         try {
             setMiViewBlurMode.invoke(target, 0);
             clearMiBackgroundBlendColor.invoke(target);
-            log("suppressed system-ui element blur target=" + target.getClass().getName());
         } catch (Throwable error) {
             logError("system-ui element blur suppression failed target="
                     + target.getClass().getName(), error);
@@ -80,7 +81,7 @@ final class NotificationVendorMaterialController {
         int[] materialModes = light ? LIGHT_MATERIAL_MODES : DARK_MATERIAL_MODES;
 
         try {
-            enableDiagnosticCardBackdrop(target);
+            enableCardBackdrop(target);
             setMixEffectEnabled.invoke(target, true);
             setMiViewBlurMode.invoke(target, 1);
             setMiBackgroundBlendColors.invoke(
@@ -89,32 +90,28 @@ final class NotificationVendorMaterialController {
                 setMiBloomStroke.invoke(target, (Object) scaledBloomStroke(target, light));
             }
             target.setClipToOutline(true);
-
-            log("applied element-material via updateBackground target="
-                    + target.getClass().getName()
-                    + " row=" + (row == null ? "<none>" : row.getClass().getName())
-                    + " theme=" + (light ? "light" : "dark")
-                    + " bloom=" + (setMiBloomStroke != null));
         } catch (Throwable error) {
             logError("element-material failed target=" + target.getClass().getName(), error);
         }
     }
 
     /**
-     * Supplied MiuiSystemUI.apk has two verified native backdrop tuples:
-     * NotificationUtil#applyContainerViewBlur and ElementSurfaceModel#updateBlurContainer both use
-     * backgroundBlurMode=1 + a positive blur radius + passWindowBlur=true. The production SystemUI
-     * radius is 100dp; this diagnostic intentionally uses 20dp so backdrop motion remains visible.
+     * Supplied MiuiSystemUI.apk uses the same native backdrop tuple in
+     * NotificationUtil#applyContainerViewBlur and ElementSurfaceModel#updateBlurContainer:
+     * backgroundBlurMode=1 + positive radius + passWindowBlur=true.
      */
-    private void enableDiagnosticCardBackdrop(View target) throws Exception {
+    private void enableCardBackdrop(View target) throws Exception {
         int radiusPx = Math.max(1, Math.round(
-                DIAGNOSTIC_PASS_BLUR_RADIUS_DP * target.getResources().getDisplayMetrics().density));
+                CARD_PASS_BLUR_RADIUS_DP * target.getResources().getDisplayMetrics().density));
         setMiBackgroundBlurMode.invoke(target, 1);
         setMiBackgroundBlurRadius.invoke(target, radiusPx);
         setPassWindowBlurEnabled.invoke(target, true);
-        log("enabled card pass-blur target=" + target.getClass().getName()
-                + " radiusDp=" + DIAGNOSTIC_PASS_BLUR_RADIUS_DP
-                + " radiusPx=" + radiusPx);
+        if (passBlurLogged.compareAndSet(false, true)) {
+            log("enabled card pass-blur target=" + target.getClass().getName()
+                    + " radiusDp=" + CARD_PASS_BLUR_RADIUS_DP
+                    + " radiusPx=" + radiusPx
+                    + " bloom=" + (setMiBloomStroke != null));
+        }
     }
 
     private static boolean isLight(View target) {
