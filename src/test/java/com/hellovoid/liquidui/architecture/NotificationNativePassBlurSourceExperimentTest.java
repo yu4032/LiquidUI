@@ -85,12 +85,11 @@ public class NotificationNativePassBlurSourceExperimentTest {
 
     @Test
     public void notificationCardUsesVerifiedNativePassBlurTupleAtLowDiagnosticRadius() throws Exception {
-        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
-        assertTrue(hook.contains("setMiBackgroundBlurMode"));
-        assertTrue(hook.contains("setMiBackgroundBlurRadius"));
-        assertTrue(hook.contains("setPassWindowBlurEnabled"));
         assertTrue(controller.contains("DIAGNOSTIC_PASS_BLUR_RADIUS_DP = 20.0f"));
+        assertTrue(controller.contains("View.class.getMethod(\"setMiBackgroundBlurMode\", int.class)"));
+        assertTrue(controller.contains("View.class.getMethod(\"setMiBackgroundBlurRadius\", int.class)"));
+        assertTrue(controller.contains("View.class.getMethod(\"setPassWindowBlurEnabled\", boolean.class)"));
         assertTrue(controller.contains("setMiBackgroundBlurMode.invoke(target, 1)"));
         assertTrue(controller.contains("setMiBackgroundBlurRadius.invoke(target, radiusPx)"));
         assertTrue(controller.contains("setPassWindowBlurEnabled.invoke(target, true)"));
