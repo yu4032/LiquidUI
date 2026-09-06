@@ -141,6 +141,18 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
+    public void vendorPassBlurAuthorityBootstrapsFromNotificationBlurProviderSnapshot() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        assertTrue(hook.contains("getDeclaredField(\"passBlur\")"));
+        assertTrue(hook.contains("authorityState.observe(blurProviderPassBlur.getBoolean(thisObject))"));
+        int blurHook = hook.indexOf("blurProviderSetRatio,");
+        int activityGuard = hook.indexOf("!activityState.isActive()", blurHook);
+        int bootstrap = hook.indexOf("authorityState.observe(blurProviderPassBlur.getBoolean(thisObject))", blurHook);
+        assertTrue(blurHook >= 0 && bootstrap > blurHook && activityGuard > bootstrap);
+        assertFalse(hook.contains("blurProviderPassBlur.setBoolean"));
+    }
+
+    @Test
     public void shadeBlurSuppressionDoesNotMutateVendorPassBlurAuthority() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         assertFalse(hook.contains("blurProviderPassBlur.setBoolean"));

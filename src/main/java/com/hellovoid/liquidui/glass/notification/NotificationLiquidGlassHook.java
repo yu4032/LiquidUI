@@ -94,6 +94,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
         final Method displayAreaVanished;
         final Field displayAreaDisplayId;
         final Field blurProviderView;
+        final Field blurProviderPassBlur;
         final Field blendBackgroundView;
         final Class<?> shadeWindowClass;
         final Class<?> notificationPanelClass;
@@ -146,6 +147,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             blurProviderSetRatio = accessible(blurProviderClass.getDeclaredMethod(
                     "setBlurRatio", float.class));
             blurProviderView = accessible(blurProviderClass.getDeclaredField("view"));
+            blurProviderPassBlur = accessible(blurProviderClass.getDeclaredField("passBlur"));
             blendBackgroundSetEnabled = accessible(blendBackgroundClass.getDeclaredMethod(
                     "setEnabled", boolean.class));
             blendBackgroundView = accessible(blendBackgroundClass.getDeclaredField("view"));
@@ -231,10 +233,13 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     blurProviderSetRatio,
                     ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> {
+                        Object target = blurProviderView.get(thisObject);
+                        if (notificationPanelClass.isInstance(target)) {
+                            authorityState.observe(blurProviderPassBlur.getBoolean(thisObject));
+                        }
                         if (!activityState.isActive() || args.length == 0 || !(args[0] instanceof Float ratio)) {
                             return;
                         }
-                        Object target = blurProviderView.get(thisObject);
                         if (!isShadeBlurTarget(target, shadeWindowClass, notificationPanelClass)) return;
                         args[0] = NotificationShadeBlurPolicy.blurRatio(true, ratio);
                         setMiBackgroundBlurMode.invoke(target, 0);
