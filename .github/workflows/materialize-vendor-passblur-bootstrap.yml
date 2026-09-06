@@ -1,0 +1,115 @@
+name: Materialize vendor PassBlur bootstrap fix
+on:
+  push:
+    branches:
+      - staging/vendor-passblur-bootstrap
+permissions:
+  contents: write
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Apply exact bootstrap fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java')
+          s = p.read_text()
+          s = s.replace(
+              '        final Field blurProviderView;\n        final Field blendBackgroundView;\n',
+              '        final Field blurProviderView;\n        final Field blurProviderPassBlur;\n        final Field blendBackgroundView;\n')
+          s = s.replace(
+              '            blurProviderView = accessible(blurProviderClass.getDeclaredField("view"));\n            blendBackgroundSetEnabled = accessible(blendBackgroundClass.getDeclaredMethod(\n',
+              '            blurProviderView = accessible(blurProviderClass.getDeclaredField("view"));\n            blurProviderPassBlur = accessible(blurProviderClass.getDeclaredField("passBlur"));\n            blendBackgroundSetEnabled = accessible(blendBackgroundClass.getDeclaredMethod(\n')
+          old = '''            rollbacks.add(argumentBackend.intercept(
+                    blurProviderSetRatio,
+                    ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> {
+                        if (!activityState.isActive() || args.length == 0 || !(args[0] instanceof Float ratio)) {
+                            return;
+                        }
+                        Object target = blurProviderView.get(thisObject);
+                        if (!isShadeBlurTarget(target, shadeWindowClass, notificationPanelClass)) return;
+                        args[0] = NotificationShadeBlurPolicy.blurRatio(true, ratio);
+                        setMiBackgroundBlurMode.invoke(target, 0);
+                    })::unhook);
+'''
+          new = '''            rollbacks.add(argumentBackend.intercept(
+                    blurProviderSetRatio,
+                    ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> {
+                        Object target = blurProviderView.get(thisObject);
+                        if (notificationPanelClass.isInstance(target)) {
+                            authorityState.observe(blurProviderPassBlur.getBoolean(thisObject));
+                        }
+                        if (!activityState.isActive() || args.length == 0 || !(args[0] instanceof Float ratio)) {
+                            return;
+                        }
+                        if (!isShadeBlurTarget(target, shadeWindowClass, notificationPanelClass)) return;
+                        args[0] = NotificationShadeBlurPolicy.blurRatio(true, ratio);
+                        setMiBackgroundBlurMode.invoke(target, 0);
+                    })::unhook);
+'''
+          assert old in s
+          p.write_text(s.replace(old, new))
+
+          p = Path('src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java')
+          s = p.read_text()
+          old = '''            ZeroCopyProducerRecoveryState.Decision recovery =
+                    producerRecovery.onProducerRecreated();
+            if (recovery.requestBind && vendorPassBlurEnabled) {
+                post(() -> bindProducerWhenReady(0));
+            }
+'''
+          new = '''            ZeroCopyProducerRecoveryState.Decision recovery =
+                    producerRecovery.onProducerRecreated();
+            log(" producer recreated decision requestBind=" + recovery.requestBind
+                    + " vendorGate=" + vendorPassBlurEnabled);
+            if (recovery.requestBind && vendorPassBlurEnabled) {
+                post(() -> bindProducerWhenReady(0));
+            }
+'''
+          assert old in s
+          p.write_text(s.replace(old, new))
+
+          p = Path('src/test/java/com/hellovoid/liquidui/architecture/NotificationSharedGlassArchitectureTest.java')
+          s = p.read_text()
+          needle = '''    @Test
+    public void shadeBlurSuppressionDoesNotMutateVendorPassBlurAuthority() throws Exception {
+'''
+          insert = '''    @Test
+    public void vendorPassBlurAuthorityBootstrapsFromNotificationBlurProviderSnapshot() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        assertTrue(hook.contains("getDeclaredField(\\\"passBlur\\\")"));
+        assertTrue(hook.contains("authorityState.observe(blurProviderPassBlur.getBoolean(thisObject))"));
+        int blurHook = hook.indexOf("blurProviderSetRatio,");
+        int activityGuard = hook.indexOf("!activityState.isActive()", blurHook);
+        int bootstrap = hook.indexOf("authorityState.observe(blurProviderPassBlur.getBoolean(thisObject))", blurHook);
+        assertTrue(blurHook >= 0 && bootstrap > blurHook && activityGuard > bootstrap);
+        assertFalse(hook.contains("blurProviderPassBlur.setBoolean"));
+    }
+
+'''
+          assert needle in s
+          p.write_text(s.replace(needle, insert + needle))
+          PY
+      - name: Run contracts
+        run: ./scripts/test-contracts.sh
+      - name: Commit materialized tree
+        shell: bash
+        run: |
+          rm -f .github/workflows/materialize-vendor-passblur-bootstrap.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: bootstrap notification PassBlur gate from provider state'
+          git push
