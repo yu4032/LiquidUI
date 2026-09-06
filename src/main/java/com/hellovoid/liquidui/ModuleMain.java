@@ -11,6 +11,7 @@ import com.hellovoid.liquidui.hook.HookRegistryReport;
 import com.hellovoid.liquidui.hook.SystemUiHookRegistry;
 import com.hellovoid.liquidui.hook.systemui.notification.NotificationRedBackgroundHook;
 import com.hellovoid.liquidui.glass.notification.FrameworkPassBlurProbeHook;
+import com.hellovoid.liquidui.glass.notification.FrameworkPassBlurViewConsumerHook;
 import com.hellovoid.liquidui.glass.notification.NotificationLiquidGlassHook;
 import com.hellovoid.liquidui.target.FrameworkPackageVersionReader;
 import com.hellovoid.liquidui.target.SystemUiRuntimeInfo;
@@ -83,6 +84,8 @@ public final class ModuleMain extends XposedModule {
                                 new Api101ArgumentRewriteHookBackend(config.diagnosticsEnabled()),
                                 config.notificationGlassEnabled()),
                         new FrameworkPassBlurProbeHook(
+                                new Api101BeforeMethodHookBackend(config.diagnosticsEnabled())),
+                        new FrameworkPassBlurViewConsumerHook(
                                 new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()))));
             }
             HookRegistryReport report = hookRegistry.installAll(classLoader, resolution.profile());
