@@ -14,6 +14,8 @@ public class FrameworkPassBlurViewConsumerExperimentContractTest {
                 "src/main/java/com/hellovoid/liquidui/glass/notification/FrameworkPassBlurViewConsumerHook.java");
         assertTrue(Files.exists(hookPath));
         String hook = Files.readString(hookPath);
+        String moduleMain = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/ModuleMain.java"));
 
         assertTrue(hook.contains("com.miui.systemui.shade.ShadeBackgroundView"));
         assertTrue(hook.contains("setTextureAvailable"));
@@ -24,6 +26,8 @@ public class FrameworkPassBlurViewConsumerExperimentContractTest {
         assertTrue(hook.contains("getPassWindowBlurEnabled"));
         assertTrue(hook.contains("getPassTextureScale"));
         assertTrue(hook.contains("BeforeMethodHookBackend"));
+        assertTrue(moduleMain.contains("FrameworkPassBlurViewConsumerHook"));
+        assertTrue(moduleMain.contains("new FrameworkPassBlurViewConsumerHook("));
         assertFalse(hook.contains("ArgumentRewriteHookBackend"));
         assertFalse(hook.contains("addTextureView"));
         assertFalse(hook.contains("setPassWindowBlurEnabled.invoke"));
