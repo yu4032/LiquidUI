@@ -49,18 +49,15 @@ final class NotificationVendorMaterialController {
             Method setMiViewBlurMode,
             Method clearMiBackgroundBlendColor,
             Method setMiBackgroundBlendColors,
-            Method setMiBloomStroke,
-            Method setMiBackgroundBlurMode,
-            Method setMiBackgroundBlurRadius,
-            Method setPassWindowBlurEnabled) {
+            Method setMiBloomStroke) throws NoSuchMethodException {
         this.setMixEffectEnabled = setMixEffectEnabled;
         this.setMiViewBlurMode = setMiViewBlurMode;
         this.clearMiBackgroundBlendColor = clearMiBackgroundBlendColor;
         this.setMiBackgroundBlendColors = setMiBackgroundBlendColors;
         this.setMiBloomStroke = setMiBloomStroke;
-        this.setMiBackgroundBlurMode = setMiBackgroundBlurMode;
-        this.setMiBackgroundBlurRadius = setMiBackgroundBlurRadius;
-        this.setPassWindowBlurEnabled = setPassWindowBlurEnabled;
+        this.setMiBackgroundBlurMode = View.class.getMethod("setMiBackgroundBlurMode", int.class);
+        this.setMiBackgroundBlurRadius = View.class.getMethod("setMiBackgroundBlurRadius", int.class);
+        this.setPassWindowBlurEnabled = View.class.getMethod("setPassWindowBlurEnabled", boolean.class);
     }
 
     /** Remove SystemUI's default notification element blend before LiquidUI owns this target. */
