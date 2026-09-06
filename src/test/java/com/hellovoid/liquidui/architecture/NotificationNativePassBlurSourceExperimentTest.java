@@ -29,6 +29,26 @@ public class NotificationNativePassBlurSourceExperimentTest {
     }
 
     @Test
+    public void injectorViewIsResolvedFromSuperclassContract() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        assertTrue(hook.contains("injectorClass.getField(\"view\")"));
+        assertFalse(hook.contains("injectorClass.getDeclaredField(\"view\")"));
+    }
+
+    @Test
+    public void systemUiElementBlurIsSuppressedBeforeCustomMaterial() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
+        assertTrue(controller.contains("suppressSystemUiElementMaterial"));
+        assertTrue(controller.contains("clearMiBackgroundBlendColor"));
+        assertTrue(controller.contains("setMiViewBlurMode.invoke(target, 0)"));
+        assertTrue(controller.contains("applyHyperLightElementMaterial"));
+        assertTrue(hook.contains("materialController.suppressSystemUiElementMaterial(target)"));
+        assertTrue(hook.indexOf("materialController.suppressSystemUiElementMaterial(target)")
+                < hook.indexOf("materialController.applyHyperLightElementMaterial(target, registeredRow)"));
+    }
+
+    @Test
     public void hyperLightElementMaterialRunsAfterCompleteSystemUiBackgroundUpdate() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
