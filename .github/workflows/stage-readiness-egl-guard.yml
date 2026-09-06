@@ -1,0 +1,38 @@
+name: Stage readiness EGL guard
+
+on:
+  push:
+    branches:
+      - staging/readiness-egl-guard-20260906
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply and verify readiness guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q 'READINESS_MISMATCH stateReady=' src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java; then
+            echo 'readiness guard already materialized'
+            exit 0
+          fi
+          if [ ! -f readiness-egl-guard.patch ]; then
+            echo 'patch not present yet'
+            exit 0
+          fi
+          git apply --check readiness-egl-guard.patch
+          git apply readiness-egl-guard.patch
+          ./scripts/test-contracts.sh
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java \
+                  src/test/java/com/hellovoid/liquidui/architecture/NotificationSharedGlassArchitectureTest.java
+          git commit -m 'fix: cross-check producer recreate against live EGL output'
+          git push origin HEAD:staging/readiness-egl-guard-20260906
