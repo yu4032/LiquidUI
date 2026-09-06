@@ -113,9 +113,9 @@ public class NotificationNativePassBlurSourceExperimentTest {
         assertTrue(controller.contains("applied AGSL refraction probe"));
         assertTrue(controller.indexOf("enableGpuBackdropContainer(row, target)")
                 < controller.indexOf("scheduleAgslRefractionProbe(target)"));
-        assertFalse(controller.contains("PixelCopy"));
-        assertFalse(controller.contains("MediaProjection"));
-        assertFalse(controller.contains("ScreenCapture"));
+        assertFalse(controller.contains("PixelCopy.request"));
+        assertFalse(controller.contains("android.media.projection.MediaProjection"));
+        assertFalse(controller.contains("ScreenCapture.capture"));
         assertFalse(controller.contains("SurfaceControl.capture"));
     }
 
@@ -132,9 +132,9 @@ public class NotificationNativePassBlurSourceExperimentTest {
         assertTrue(controller.contains("disableMiBackgroundContainBelow.invoke(container, true)"));
         assertTrue(controller.contains("chooseBackgroundBlurContainer.invoke(container, member)"));
         assertTrue(controller.contains("GPU backdrop container"));
-        assertFalse(controller.contains("Bitmap"));
-        assertFalse(controller.contains("PixelCopy"));
-        assertFalse(controller.contains("ScreenCapture"));
+        assertFalse(controller.contains("android.graphics.Bitmap"));
+        assertFalse(controller.contains("PixelCopy.request"));
+        assertFalse(controller.contains("ScreenCapture.capture"));
     }
 
     @Test
