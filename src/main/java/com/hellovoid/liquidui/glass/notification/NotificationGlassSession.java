@@ -72,7 +72,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         renderer = new NotificationPassBlurTextureView(
                 parent.getContext(), stack, sceneState, this, authorityState.isEnabled(),
                 sourceState, displayId);
-        renderer.setVisibility(View.INVISIBLE);
+        renderer.setAlpha(0f);
         host.addView(renderer, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
@@ -133,7 +133,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
     @Override public void onFirstFrameActive() {
         if (shutdown || active || !authorityState.isEnabled()) return;
         active = true;
-        renderer.setVisibility(View.VISIBLE);
+        renderer.setAlpha(1f);
         setShadeBlurSuppression(!rows.isEmpty());
         log("first GPU frame active nodes=" + lastNodes.size());
         suppressVendorMaterial();
@@ -175,7 +175,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         log("HyperOS notifPassBlur=" + enabled);
         if (!enabled) {
             active = false;
-            renderer.setVisibility(View.INVISIBLE);
+            renderer.setAlpha(0f);
             setShadeBlurSuppression(false);
             materialController.restoreAll();
             renderer.setVendorPassBlurEnabled(false, "hyperos-notifPassBlur");
@@ -191,7 +191,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
                 + " generation=" + snapshot.generation());
         if (!snapshot.available()) {
             active = false;
-            renderer.setVisibility(View.INVISIBLE);
+            renderer.setAlpha(0f);
             setShadeBlurSuppression(false);
             materialController.restoreAll();
         }
