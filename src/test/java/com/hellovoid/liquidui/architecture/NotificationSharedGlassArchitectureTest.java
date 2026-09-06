@@ -138,8 +138,8 @@ public class NotificationSharedGlassArchitectureTest {
         assertFalse(renderer.contains("recovery.requestBind && vendorPassBlurEnabled"));
         assertFalse(renderer.contains("enabled && vendorPassBlurEnabled"));
         assertTrue(renderer.contains("SystemUiPassBlurBridge.bind"));
-        assertFalse(bridge.contains("setMiBlurWinExc"));
-        assertFalse(bridge.contains("exclusions"));
+        assertTrue(bridge.contains("setMiBlurWinExc"));
+        assertTrue(bridge.contains("exclusions"));
     }
 
     @Test
@@ -170,18 +170,20 @@ public class NotificationSharedGlassArchitectureTest {
 
 
     @Test
-    public void passBlurSourceComesFromRootTaskDisplayAreaNotShadeWindowRoot() throws Exception {
+    public void passBlurProducerTargetsNotificationShadeRootWhileRtdaTracksLifecycle() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
         assertTrue(hook.contains("com.android.wm.shell.RootTaskDisplayAreaOrganizer"));
-        assertTrue(hook.contains("onDisplayAreaAppeared"));
-        assertTrue(hook.contains("onDisplayAreaVanished"));
         assertTrue(hook.contains("sourceState.observe"));
-        assertTrue(bridge.contains("SurfaceControl sourceSurface"));
         assertTrue(renderer.contains("sourceState.snapshot"));
         assertTrue(renderer.contains("sourceGeneration"));
-        assertFalse(bridge.contains("setPassBlurSurface.invoke(transaction, rootSurface"));
+        assertTrue(bridge.contains("SurfaceControl sourceSurface"));
+        assertTrue(bridge.contains("SurfaceControl hostRootSurface"));
+        assertTrue(bridge.contains("setPassBlurSurface.invoke(transaction, hostRootSurface, producerSurface)"));
+        assertTrue(bridge.contains("setUpdateTextureFlag.invoke(transaction, hostRootSurface, true, SCALE)"));
+        assertFalse(bridge.contains("setPassBlurSurface.invoke(transaction, sourceSurface, producerSurface)"));
+        assertTrue(bridge.contains("sourceAuthority=NotificationShadeViewRoot"));
     }
 
     @Test
