@@ -1,6 +1,7 @@
 package com.hellovoid.liquidui.glass.notification;
 
 import android.graphics.SurfaceTexture;
+import android.view.SurfaceControl;
 import android.view.TextureView;
 import android.view.View;
 
@@ -50,6 +51,7 @@ final class FrameworkPassBlurProbe {
                 log("defer ViewRootImpl=null panel=" + describe(panel));
                 return;
             }
+            registerShadeRoot(viewRoot);
             int rootIdentity = System.identityHashCode(viewRoot);
             if (!PROBED_ROOTS.add(rootIdentity)) return;
             log("begin root=" + Integer.toHexString(rootIdentity) + " panel=" + describe(panel));
@@ -63,6 +65,20 @@ final class FrameworkPassBlurProbe {
             log("root probe failed " + error.getClass().getSimpleName() + ":" + error.getMessage());
         }
         log("end visited=" + visited.size() + " remainingBudget=" + objectBudget.get());
+    }
+
+    private static void registerShadeRoot(Object viewRoot) {
+        if (viewRoot == null) return;
+        try {
+            Method getSurfaceControl = viewRoot.getClass().getDeclaredMethod("getSurfaceControl");
+            getSurfaceControl.setAccessible(true);
+            Object surface = getSurfaceControl.invoke(viewRoot);
+            if (surface instanceof SurfaceControl root && root.isValid()) {
+                FrameworkPassBlurTransactionProbe.registerShadeRoot(root);
+            }
+        } catch (Throwable error) {
+            log("shade root registration failed " + error.getClass().getSimpleName());
+        }
     }
 
     private static void inspectObject(
