@@ -7,11 +7,16 @@ import java.util.WeakHashMap;
 
 /** Weak registry whose authority is SystemUI's notification material dispatch, not row lifecycle. */
 final class NotificationMaterialTargetRegistry {
-    record RoundState(boolean topRounded, boolean bottomRounded) {}
+    /**
+     * Exact semantics of NotificationUtil#setRoundRect(View, boolean, boolean) in the supplied
+     * MiuiSystemUI.apk: first flag chooses NotificationBackgroundView actualHeight geometry; second
+     * flag selects flip_notification_item_bg_radius versus notification_item_bg_radius.
+     */
+    record OutlineState(boolean useActualHeightGeometry, boolean useFlipRadius) {}
 
     private final Class<?> rowClass;
     private final WeakHashMap<View, Object> targetRows = new WeakHashMap<>();
-    private final WeakHashMap<Object, RoundState> rowRoundStates = new WeakHashMap<>();
+    private final WeakHashMap<Object, OutlineState> rowOutlineStates = new WeakHashMap<>();
     private final WeakHashMap<Object, Boolean> childrenExpanded = new WeakHashMap<>();
 
     NotificationMaterialTargetRegistry(Class<?> rowClass) {
@@ -32,7 +37,8 @@ final class NotificationMaterialTargetRegistry {
     }
 
     synchronized void observeChildrenExpanded(Object container, Object[] args) {
-        if (container == null || args == null || args.length == 0 || !(args[0] instanceof Boolean expanded)) {
+        if (container == null || args == null || args.length == 0
+                || !(args[0] instanceof Boolean expanded)) {
             return;
         }
         childrenExpanded.put(container, expanded);
@@ -44,19 +50,20 @@ final class NotificationMaterialTargetRegistry {
 
     synchronized void observeRoundRect(Object[] args) {
         if (args == null || args.length < 3 || !(args[0] instanceof View target)
-                || !(args[1] instanceof Boolean topRounded)
-                || !(args[2] instanceof Boolean bottomRounded)) {
+                || !(args[1] instanceof Boolean useActualHeightGeometry)
+                || !(args[2] instanceof Boolean useFlipRadius)) {
             return;
         }
         Object row = findRow(target);
         if (row != null) {
             targetRows.put(target, row);
-            rowRoundStates.put(row, new RoundState(topRounded, bottomRounded));
+            rowOutlineStates.put(
+                    row, new OutlineState(useActualHeightGeometry, useFlipRadius));
         }
     }
 
-    synchronized RoundState roundState(Object row) {
-        return rowRoundStates.get(row);
+    synchronized OutlineState outlineState(Object row) {
+        return rowOutlineStates.get(row);
     }
 
     private Object findRow(View start) {

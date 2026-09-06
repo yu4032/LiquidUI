@@ -91,14 +91,10 @@ final class NotificationGlassNodeCollector {
             float left = bgScreen[0] - hostScreen[0] + leftOffset;
             float top = bgScreen[1] - hostScreen[1];
 
+            // Per-edge corner magnitudes remain row authority. The two setRoundRect booleans do
+            // NOT represent top/bottom rounded state in this SystemUI build.
             float topRadius = number(topCornerRadius.invoke(rowObject));
             float bottomRadius = number(bottomCornerRadius.invoke(rowObject));
-            NotificationMaterialTargetRegistry.RoundState roundState = targetRegistry == null
-                    ? null : targetRegistry.roundState(rowObject);
-            if (roundState != null) {
-                if (!roundState.topRounded()) topRadius = 0f;
-                if (!roundState.bottomRounded()) bottomRadius = 0f;
-            }
             float opacity = row.getAlpha();
             return new NotificationGlassNode(
                     left, top, actualWidth, visibleHeight,

@@ -76,10 +76,15 @@ public class NotificationNativePassBlurSourceExperimentTest {
     public void systemUiRoundAuthorityIsPreserved() throws Exception {
         String collector = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java");
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        String registry = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationMaterialTargetRegistry.java");
         String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
-        assertTrue(collector.contains("NotificationMaterialTargetRegistry"));
-        assertTrue(collector.contains("roundState"));
+        assertTrue(collector.contains("topCornerRadius.invoke(rowObject)"));
+        assertTrue(collector.contains("bottomCornerRadius.invoke(rowObject)"));
+        assertFalse(collector.contains("roundState"));
         assertTrue(hook.contains("observeRoundRect"));
+        assertTrue(registry.contains("OutlineState"));
+        assertTrue(registry.contains("useActualHeightGeometry"));
+        assertTrue(registry.contains("useFlipRadius"));
         assertFalse(controller.contains("setOutlineProvider"));
         assertFalse(controller.contains("24.0f"));
     }
