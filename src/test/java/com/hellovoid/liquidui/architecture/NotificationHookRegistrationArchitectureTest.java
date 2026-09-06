@@ -13,6 +13,9 @@ public class NotificationHookRegistrationArchitectureTest {
     public void moduleMainRegistersSharedNotificationGlassHook() throws Exception {
         String source = Files.readString(MODULE_MAIN);
         assertTrue(source.contains("NotificationLiquidGlassHook"));
+        assertTrue(source.contains("NotificationRedBackgroundHook"));
+        assertTrue(source.contains("config.notificationDebugForceRedBackground()"));
+        assertTrue(source.contains("if (config.notificationDebugForceRedBackground())"));
         assertTrue(source.contains("Api101BeforeMethodHookBackend"));
         assertTrue(source.contains("config.diagnosticsEnabled()"));
         assertTrue(source.contains("config.notificationGlassEnabled()"));
