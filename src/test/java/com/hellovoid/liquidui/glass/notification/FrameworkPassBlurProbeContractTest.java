@@ -78,4 +78,24 @@ public class FrameworkPassBlurProbeContractTest {
         assertFalse(probe.contains(".release()"));
         assertFalse(probe.contains("addTextureView.invoke"));
     }
+
+    @Test
+    public void frameworkProbeReinspectsAfterShadeAttachAndMatchingTransactions() throws Exception {
+        String hook = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/FrameworkPassBlurProbeHook.java"));
+        String graph = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/FrameworkPassBlurProbe.java"));
+        String transaction = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/FrameworkPassBlurTransactionProbe.java"));
+
+        assertTrue(hook.contains("onAttachedToWindow"));
+        assertTrue(hook.contains("FrameworkPassBlurProbe.inspectIfGenerationChanged"));
+        assertTrue(graph.contains("inspectIfGenerationChanged"));
+        assertTrue(graph.contains("probeGeneration"));
+        assertTrue(graph.contains("inspectionFingerprint"));
+        assertTrue(graph.contains("removeTextureView"));
+        assertTrue(transaction.contains("FrameworkPassBlurProbe.onMatchingShadeTransaction"));
+        assertFalse(graph.contains("addTextureView.invoke"));
+        assertFalse(graph.contains("removeTextureView.invoke"));
+    }
 }
