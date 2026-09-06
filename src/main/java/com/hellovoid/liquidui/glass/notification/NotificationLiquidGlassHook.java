@@ -85,10 +85,17 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
 
             targetRegistry = new NotificationMaterialTargetRegistry(rowClass);
             materialController = new NotificationVendorMaterialController();
+            android.util.Log.i("LiquidUI",
+                    "[LUI][NotifGlass][Hook] resolved SystemUI material contract: "
+                            + "applyElementViewBlend -> setMiBackgroundBlendColors(View,int[],float)");
         } catch (ClassNotFoundException | NoSuchMethodException error) {
+            android.util.Log.e("LiquidUI",
+                    "[LUI][NotifGlass][Hook] exact notification material contract missing", error);
             return HookInstallResult.unsupported(HOOK_ID,
                     "exact notification material contract missing: " + error);
         } catch (Throwable error) {
+            android.util.Log.e("LiquidUI",
+                    "[LUI][NotifGlass][Hook] notification material contract resolution failed", error);
             return HookInstallResult.failed(HOOK_ID,
                     "notification material contract resolution failed", error);
         }
@@ -116,7 +123,6 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                                 || !(args[1] instanceof int[] colors)
                                 || !(args[2] instanceof Number ratio)) return;
                         Object row = targetRegistry.observeMaterialTarget(target);
-                        if (row == null) return;
                         materialController.observeSystemMaterial(
                                 target, row, colors, ratio.floatValue());
                     })::unhook);
@@ -132,6 +138,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     AfterMethodHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> targetRegistry.observeRoundRect(args))::unhook);
 
+            android.util.Log.i("LiquidUI", "[LUI][NotifGlass][Hook] installed");
             return HookInstallResult.installed(HOOK_ID);
         } catch (Throwable error) {
             for (int index = rollbacks.size() - 1; index >= 0; index--) {
@@ -139,6 +146,8 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     error.addSuppressed(rollback);
                 }
             }
+            android.util.Log.e("LiquidUI",
+                    "[LUI][NotifGlass][Hook] registration failed", error);
             return HookInstallResult.failed(HOOK_ID,
                     "notification material hook registration failed", error);
         }
