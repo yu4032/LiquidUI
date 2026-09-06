@@ -16,8 +16,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Apply patch
-        run: git apply .gatefix/remove-vendor-hard-gate.patch
+      - name: Apply asserted patcher
+        run: python3 .gatefix/apply.py
       - name: Run contracts
         run: ./scripts/test-contracts.sh
       - name: Commit materialized tree
