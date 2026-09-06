@@ -181,6 +181,32 @@ public class NotificationSharedGlassArchitectureTest {
         assertTrue(collector.contains("bottomCornerRadius.invoke(rowObject)"));
         assertFalse(collector.contains("cornerRadiiField"));
     }
+    @Test
+    public void producerRecreateWaitsForOutputEglInsteadOfFailingStartup() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        assertTrue(renderer.contains("ProducerRecreateReadinessState"));
+        assertTrue(renderer.contains("requestProducerRecreate"));
+        assertTrue(renderer.contains("producer recreate deferred until output EGL ready"));
+        assertTrue(renderer.contains("drainDeferredProducerRecreate"));
+        assertTrue(renderer.contains("producerRecreateReadiness.onOutputUnavailable()"));
+        int finish = renderer.indexOf("private void finishOutputAttach");
+        int ready = renderer.indexOf("producerRecreateReadiness.onOutputReady()", finish);
+        int drain = renderer.indexOf("drainDeferredProducerRecreate", finish);
+        int resources = renderer.indexOf("ensureGlResources()", finish);
+        assertTrue(finish >= 0 && ready > finish && drain > ready && resources > drain);
+        assertFalse(renderer.contains("recreateInputProducer(\"source-change:"));
+    }
+
+    @Test
+    public void glInitializationDoesNotOverwriteProducerCreatedByDeferredRecreate() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        int ensure = renderer.indexOf("private void ensureGlResources()");
+        int next = renderer.indexOf("private void createInputProducer()", ensure);
+        String body = renderer.substring(ensure, next);
+        assertTrue(body.contains("oesTexture == 0 || inputSurfaceTexture == null || inputProducerSurface == null"));
+        assertTrue(body.contains("createInputProducer()"));
+    }
+
     private static long occurrences(String value, String needle) {
         long count = 0;
         int offset = 0;

@@ -47,7 +47,7 @@ mapfile -t PURE_MAIN < <(
        "$ROOT/src/main/java/com/hellovoid/liquidui/diagnostics" \
        -name '*.java' -print | sort
 )
-for f in NotificationGlassNode.java NotificationGlassSceneSnapshot.java NotificationGlassSceneState.java ZeroCopyProducerRecoveryState.java Miuix307BackdropMapping.java NotificationGlassActivityState.java NotificationShadeBlurPolicy.java NotificationPassBlurAuthorityState.java NotificationPassBlurSourceState.java; do
+for f in NotificationGlassNode.java NotificationGlassSceneSnapshot.java NotificationGlassSceneState.java ZeroCopyProducerRecoveryState.java Miuix307BackdropMapping.java NotificationGlassActivityState.java NotificationShadeBlurPolicy.java NotificationPassBlurAuthorityState.java NotificationPassBlurSourceState.java ProducerRecreateReadinessState.java; do
   PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/notification/$f")
 done
 mapfile -t TESTS < <(find "$ROOT/src/test/java" -name '*.java' -print | sort)
