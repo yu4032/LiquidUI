@@ -99,6 +99,24 @@ public class NotificationNativePassBlurSourceExperimentTest {
     }
 
     @Test
+    public void agslRefractionProbeRunsOnTheSameCardAfterNativePassBlur() throws Exception {
+        String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
+        assertTrue(controller.contains("android.graphics.RuntimeShader"));
+        assertTrue(controller.contains("android.graphics.RenderEffect"));
+        assertTrue(controller.contains("uniform shader content"));
+        assertTrue(controller.contains("chromaticAberration"));
+        assertTrue(controller.contains("createRuntimeShaderEffect"));
+        assertTrue(controller.contains("target.setRenderEffect"));
+        assertTrue(controller.contains("applied AGSL refraction probe"));
+        assertTrue(controller.indexOf("enableCardBackdrop(target)")
+                < controller.indexOf("applyAgslRefractionProbe(target)"));
+        assertFalse(controller.contains("PixelCopy"));
+        assertFalse(controller.contains("MediaProjection"));
+        assertFalse(controller.contains("ScreenCapture"));
+        assertFalse(controller.contains("SurfaceControl.capture"));
+    }
+
+    @Test
     public void validatedGlassPathIsNotLabelledAsTemporaryProbe() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
