@@ -31,17 +31,30 @@ public class NotificationNativePassBlurSourceExperimentTest {
     }
 
     @Test
-    public void exactTargetClearsAllFiveVendorBlurStatesThenUsesViewPassBlur() throws Exception {
+    public void materialHookMatchesDecompiledSystemUiDescriptor() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+
+        // MiuiSystemUI.apk (classes2.dex):
+        // MiBlurCompat#setMiBackgroundBlendColors(View, int[], float)
+        assertTrue(hook.contains("\"setMiBackgroundBlendColors\", View.class, int[].class, float.class"));
+        assertTrue(hook.contains("args.length < 3"));
+        assertTrue(hook.contains("args[2] instanceof Number"));
+    }
+
+    @Test
+    public void rowElementTargetPreservesSystemUiConsumerOwnership() throws Exception {
         String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
 
-        assertTrue(controller.contains("clearMiBackgroundBlendColor"));
-        assertTrue(controller.contains("setMiBackgroundBlurMode"));
-        assertTrue(controller.contains("setMiViewBlurMode"));
-        assertTrue(controller.contains("setMiBackgroundBlurRadius"));
-        assertTrue(controller.contains("setPassWindowBlurEnabled"));
-        assertTrue(controller.contains("setPassWindowBlurEnabled.invoke(target, true)"));
-        assertFalse(controller.contains("backgroundNormal"));
-        assertFalse(controller.contains("background.setAlpha(0f)"));
+        // Decompiled ExpandableNotificationRowInjector#updateBlurBg proves ordinary notification
+        // mBackgroundNormal is an element consumer: SystemUI uses viewBlurMode + blend on it.
+        // backgroundBlurMode/radius/passWindowBlur are container APIs used elsewhere, not row ownership.
+        assertFalse(controller.contains("setMiBackgroundBlurMode"));
+        assertFalse(controller.contains("setMiBackgroundBlurRadius"));
+        assertFalse(controller.contains("setPassWindowBlurEnabled"));
+        assertFalse(controller.contains("clearMiBackgroundBlendColor"));
+        assertFalse(controller.contains("setMiViewBlurMode"));
+        assertTrue(controller.contains("observeSystemMaterial"));
+        assertFalse(controller.contains("takeOver("));
     }
 
     @Test
