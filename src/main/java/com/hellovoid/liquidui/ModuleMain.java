@@ -9,6 +9,7 @@ import com.hellovoid.liquidui.diagnostics.BootstrapDiagnosticsPolicy;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
 import com.hellovoid.liquidui.hook.HookRegistryReport;
 import com.hellovoid.liquidui.hook.SystemUiHookRegistry;
+import com.hellovoid.liquidui.hook.systemui.notification.NotificationRedBackgroundHook;
 import com.hellovoid.liquidui.glass.notification.FrameworkPassBlurProbeHook;
 import com.hellovoid.liquidui.glass.notification.NotificationLiquidGlassHook;
 import com.hellovoid.liquidui.target.FrameworkPackageVersionReader;
@@ -68,13 +69,22 @@ public final class ModuleMain extends XposedModule {
                 return;
             }
 
-            SystemUiHookRegistry hookRegistry = new SystemUiHookRegistry(List.of(
-                    new NotificationLiquidGlassHook(
-                            new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()),
-                            new Api101ArgumentRewriteHookBackend(config.diagnosticsEnabled()),
-                            config.notificationGlassEnabled()),
-                    new FrameworkPassBlurProbeHook(
-                            new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()))));
+            SystemUiHookRegistry hookRegistry;
+            if (config.notificationDebugForceRedBackground()) {
+                hookRegistry = new SystemUiHookRegistry(List.of(
+                        new NotificationRedBackgroundHook(
+                                new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()))));
+                Api101Bridge.log(LiquidUiLog.format(
+                        "notification debug mode=FORCE_RED; glass/probe disabled"));
+            } else {
+                hookRegistry = new SystemUiHookRegistry(List.of(
+                        new NotificationLiquidGlassHook(
+                                new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()),
+                                new Api101ArgumentRewriteHookBackend(config.diagnosticsEnabled()),
+                                config.notificationGlassEnabled()),
+                        new FrameworkPassBlurProbeHook(
+                                new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()))));
+            }
             HookRegistryReport report = hookRegistry.installAll(classLoader, resolution.profile());
             Api101Bridge.log(LiquidUiLog.format(
                     BootstrapDiagnosticsPolicy.hookRegistryMessage(
