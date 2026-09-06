@@ -212,6 +212,22 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
+    public void producerRecreateCrossChecksActualEglBeforeRunning() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        int request = renderer.indexOf("private void requestProducerRecreate");
+        int drain = renderer.indexOf("private void drainDeferredProducerRecreate", request);
+        int recreate = renderer.indexOf("private void recreateInputProducer", drain);
+        assertTrue(request >= 0 && drain > request && recreate > drain);
+        String requestBody = renderer.substring(request, drain);
+        String drainBody = renderer.substring(drain, recreate);
+        assertTrue(requestBody.contains("hasLiveOutputEgl()"));
+        assertTrue(requestBody.contains("READINESS_MISMATCH"));
+        assertTrue(requestBody.contains("producerRecreateReadiness.onOutputUnavailable()"));
+        assertTrue(drainBody.contains("hasLiveOutputEgl()"));
+        assertTrue(drainBody.contains("producer recreate resume postponed"));
+    }
+
+    @Test
     public void outputTextureViewStaysVisibleForSurfaceLifecycleButHiddenByAlphaUntilFirstFrame() throws Exception {
         String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
         assertFalse(session.contains("renderer.setVisibility(View.INVISIBLE)"));

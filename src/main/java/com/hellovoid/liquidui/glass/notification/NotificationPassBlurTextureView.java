@@ -399,9 +399,22 @@ final class NotificationPassBlurTextureView extends TextureView
         }
     }
 
+    private boolean hasLiveOutputEgl() {
+        return eglDisplay != EGL14.EGL_NO_DISPLAY
+                && eglContext != EGL14.EGL_NO_CONTEXT
+                && eglWindowSurface != EGL14.EGL_NO_SURFACE;
+    }
+
     private void requestProducerRecreate(String reason) {
         if (shuttingDown) return;
         ProducerRecreateReadinessState.Action action = producerRecreateReadiness.requestRecreate();
+        if (action == ProducerRecreateReadinessState.Action.RUN_NOW && !hasLiveOutputEgl()) {
+            boolean stateReady = producerRecreateReadiness.isOutputReady();
+            producerRecreateReadiness.onOutputUnavailable();
+            action = producerRecreateReadiness.requestRecreate();
+            log(" READINESS_MISMATCH stateReady=" + stateReady
+                    + " actualEgl=false; forced defer reason=" + reason);
+        }
         if (action == ProducerRecreateReadinessState.Action.RUN_NOW) {
             recreateInputProducer(reason);
             return;
@@ -414,6 +427,13 @@ final class NotificationPassBlurTextureView extends TextureView
         String reason = deferredProducerRecreateReason;
         deferredProducerRecreateReason = null;
         if (reason == null) reason = "output-egl-ready";
+        if (!hasLiveOutputEgl()) {
+            producerRecreateReadiness.onOutputUnavailable();
+            producerRecreateReadiness.requestRecreate();
+            deferredProducerRecreateReason = reason;
+            log(" producer recreate resume postponed; output EGL lost reason=" + reason);
+            return;
+        }
         log(" producer recreate resumed after output EGL ready reason=" + reason);
         recreateInputProducer(reason);
     }
