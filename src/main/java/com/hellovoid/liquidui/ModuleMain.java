@@ -16,7 +16,7 @@ import com.hellovoid.liquidui.target.SystemUiRuntimeInfoProvider;
 import com.hellovoid.liquidui.target.SystemUiTargetResolver;
 import com.hellovoid.liquidui.target.TargetResolution;
 import com.hellovoid.liquidui.target.TargetResolutionStatus;
-import com.hellovoid.liquidui.xposed.Api101ArgumentRewriteHookBackend;
+import com.hellovoid.liquidui.xposed.Api101AfterMethodHookBackend;
 import com.hellovoid.liquidui.xposed.Api101BeforeMethodHookBackend;
 
 import java.util.List;
@@ -70,7 +70,7 @@ public final class ModuleMain extends XposedModule {
             SystemUiHookRegistry hookRegistry = new SystemUiHookRegistry(List.of(
                     new NotificationLiquidGlassHook(
                             new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()),
-                            new Api101ArgumentRewriteHookBackend(config.diagnosticsEnabled()),
+                            new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
                             config.notificationGlassEnabled())));
             HookRegistryReport report = hookRegistry.installAll(classLoader, resolution.profile());
             Api101Bridge.log(LiquidUiLog.format(

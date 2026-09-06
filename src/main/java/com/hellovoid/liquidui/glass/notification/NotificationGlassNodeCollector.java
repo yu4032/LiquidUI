@@ -5,7 +5,7 @@ import android.view.View;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
-/** Exact systemui-001 geometry adapter for ExpandableNotificationRow#mBackgroundNormal. */
+/** Geometry adapter retained for future Prismal pass-texture integration. */
 final class NotificationGlassNodeCollector {
     private final Class<?> rowClass;
     private final Field backgroundNormalField;
@@ -18,6 +18,7 @@ final class NotificationGlassNodeCollector {
     private final Field expandRunningField;
     private final Field expandWidthField;
     private final Field expandHeightField;
+    private final NotificationMaterialTargetRegistry targetRegistry;
 
     NotificationGlassNodeCollector(
             Class<?> rowClass,
@@ -30,7 +31,8 @@ final class NotificationGlassNodeCollector {
             Method bottomCornerRadius,
             Field expandRunningField,
             Field expandWidthField,
-            Field expandHeightField) {
+            Field expandHeightField,
+            NotificationMaterialTargetRegistry targetRegistry) {
         this.rowClass = rowClass;
         this.backgroundNormalField = accessible(backgroundNormalField);
         this.actualWidthField = accessible(actualWidthField);
@@ -42,6 +44,7 @@ final class NotificationGlassNodeCollector {
         this.expandRunningField = accessible(expandRunningField);
         this.expandWidthField = accessible(expandWidthField);
         this.expandHeightField = accessible(expandHeightField);
+        this.targetRegistry = targetRegistry;
     }
 
     Object backgroundView(Object row) throws IllegalAccessException {
@@ -68,8 +71,6 @@ final class NotificationGlassNodeCollector {
                     : positiveOr(actualHeightField.getInt(backgroundObject), viewHeight);
             int clipTop = Math.max(0, clipTopField.getInt(backgroundObject));
             int clipBottom = Math.max(0, clipBottomField.getInt(backgroundObject));
-            // Mirrors NotificationBackgroundView.onDraw(): top clip participates only in the
-            // whole-background empty check, while bottom clip constrains the actual Canvas region.
             if (!expand && clipTop + clipBottom >= actualHeight) return null;
 
             int leftOffset;
@@ -92,6 +93,12 @@ final class NotificationGlassNodeCollector {
 
             float topRadius = number(topCornerRadius.invoke(rowObject));
             float bottomRadius = number(bottomCornerRadius.invoke(rowObject));
+            NotificationMaterialTargetRegistry.RoundState roundState = targetRegistry == null
+                    ? null : targetRegistry.roundState(rowObject);
+            if (roundState != null) {
+                if (!roundState.topRounded()) topRadius = 0f;
+                if (!roundState.bottomRounded()) bottomRadius = 0f;
+            }
             float opacity = row.getAlpha();
             return new NotificationGlassNode(
                     left, top, actualWidth, visibleHeight,

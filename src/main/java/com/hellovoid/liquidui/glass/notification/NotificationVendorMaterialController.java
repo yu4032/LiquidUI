@@ -1,120 +1,95 @@
 package com.hellovoid.liquidui.glass.notification;
 
-import android.graphics.drawable.Drawable;
 import android.view.View;
 
-import java.lang.reflect.Field;
+import com.hellovoid.liquidui.Api101Bridge;
+import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
+
 import java.lang.reflect.Method;
-import java.util.WeakHashMap;
 
-/** Owns reversible suppression of the vendor notification material after GPU activation. */
+/** Takes over the exact SystemUI material target with View/HWUI-owned PassBlur. */
 final class NotificationVendorMaterialController {
-    private final NotificationGlassNodeCollector collector;
-    private final Class<?> rowClass;
-    private final Field wrapperViewField;
-    private final Field wrapperRowField;
-    private final Method disableBlur;
-    private final Method clearBlend;
+    private static final String TAG = "[NotifGlass][Material]";
+    // HyperLight's direct View PassBlur route uses the same native radius preference default.
+    private static final int SYSTEM_PASS_BLUR_RADIUS_PX = 100;
 
-    private final WeakHashMap<View, Float> backgroundAlpha = new WeakHashMap<>();
-    private final WeakHashMap<View, Drawable> contentBackground = new WeakHashMap<>();
+    private final Method clearMiBackgroundBlendColor;
+    private final Method setMiBackgroundBlurMode;
+    private final Method setMiViewBlurMode;
+    private final Method setMiBackgroundBlurRadius;
+    private final Method setPassWindowBlurEnabled;
+    private final Method setMiBackgroundBlendColors;
+    private final ThreadLocal<Boolean> selfMaterialApply;
 
     NotificationVendorMaterialController(
-            NotificationGlassNodeCollector collector,
-            Class<?> rowClass,
-            Field wrapperViewField,
-            Field wrapperRowField,
-            Method disableBlur,
-            Method clearBlend) {
-        this.collector = collector;
-        this.rowClass = rowClass;
-        this.wrapperViewField = accessible(wrapperViewField);
-        this.wrapperRowField = accessible(wrapperRowField);
-        this.disableBlur = accessible(disableBlur);
-        this.clearBlend = accessible(clearBlend);
+            Method clearMiBackgroundBlendColor,
+            Method setMiBackgroundBlurMode,
+            Method setMiViewBlurMode,
+            Method setMiBackgroundBlurRadius,
+            Method setPassWindowBlurEnabled,
+            Method setMiBackgroundBlendColors,
+            ThreadLocal<Boolean> selfMaterialApply) {
+        this.clearMiBackgroundBlendColor = accessible(clearMiBackgroundBlendColor);
+        this.setMiBackgroundBlurMode = accessible(setMiBackgroundBlurMode);
+        this.setMiViewBlurMode = accessible(setMiViewBlurMode);
+        this.setMiBackgroundBlurRadius = accessible(setMiBackgroundBlurRadius);
+        this.setPassWindowBlurEnabled = accessible(setPassWindowBlurEnabled);
+        this.setMiBackgroundBlendColors = accessible(setMiBackgroundBlendColors);
+        this.selfMaterialApply = selfMaterialApply;
     }
 
-    NotificationVendorMaterialController fork() {
-        return new NotificationVendorMaterialController(
-                collector, rowClass, wrapperViewField, wrapperRowField, disableBlur, clearBlend);
-    }
-
-    void suppressRow(Object row) {
+    void takeOver(View target, int[] blendColors) {
+        if (target == null) return;
         try {
-            Object backgroundObject = collector.backgroundView(row);
-            if (!(backgroundObject instanceof View background)) return;
-            backgroundAlpha.putIfAbsent(background, background.getAlpha());
-            disableBlur.invoke(null, 0, background);
-            clearBlend.invoke(null, background);
-            if (background.getAlpha() != 0f) background.setAlpha(0f);
-        } catch (Throwable ignored) {
-        }
-    }
+            clearNativeMaterial(target);
 
-    void restoreRow(Object row) {
-        try {
-            Object backgroundObject = collector.backgroundView(row);
-            if (!(backgroundObject instanceof View background)) return;
-            Float alpha = backgroundAlpha.remove(background);
-            if (alpha != null) background.setAlpha(alpha);
-        } catch (Throwable ignored) {
-        }
-    }
+            // PassBlur ownership now lives on this exact View/RenderNode. No NotificationShade
+            // SurfaceControl endpoint is supplied by LiquidUI.
+            setPassWindowBlurEnabled.invoke(target, true);
+            setMiViewBlurMode.invoke(target, 1);
+            setMiBackgroundBlurMode.invoke(target, 1);
+            setMiBackgroundBlurRadius.invoke(target, SYSTEM_PASS_BLUR_RADIUS_PX);
 
-    View wrapperView(Object wrapper) {
-        try {
-            Object value = wrapperViewField.get(wrapper);
-            return value instanceof View ? (View) value : null;
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    Object wrapperRow(Object wrapper) {
-        try {
-            Object row = wrapperRowField.get(wrapper);
-            return rowClass.isInstance(row) ? row : null;
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    void suppressWrapper(Object wrapper) {
-        try {
-            Object row = wrapperRow(wrapper);
-            if (row == null) return;
-            Object viewObject = wrapperViewField.get(wrapper);
-            if (!(viewObject instanceof View view)) return;
-            if (!contentBackground.containsKey(view)) {
-                contentBackground.put(view, view.getBackground());
+            // Preserve SystemUI's material color authority without interpreting the opaque int[].
+            if (blendColors != null && blendColors.length > 0) {
+                selfMaterialApply.set(Boolean.TRUE);
+                try {
+                    setMiBackgroundBlendColors.invoke(null, target, blendColors.clone());
+                } finally {
+                    selfMaterialApply.remove();
+                }
             }
-            if (view.getBackground() != null) view.setBackground(null);
-        } catch (Throwable ignored) {
+            log("view-passblur target=" + target.getClass().getName()
+                    + " colors=" + (blendColors == null ? 0 : blendColors.length));
+        } catch (Throwable error) {
+            safeClear(target);
+            log("view-passblur failed target=" + target.getClass().getName() + " error=" + error);
         }
     }
 
-    void restoreWrapper(Object wrapper) {
+    private void clearNativeMaterial(View target) throws Throwable {
+        // HyperLight's exact five-state reset, applied to the SystemUI-dispatched target View.
+        clearMiBackgroundBlendColor.invoke(target);
+        setMiBackgroundBlurMode.invoke(target, 0);
+        setMiViewBlurMode.invoke(target, 0);
+        setMiBackgroundBlurRadius.invoke(target, 0);
+        setPassWindowBlurEnabled.invoke(target, false);
+    }
+
+    private void safeClear(View target) {
+        try { clearMiBackgroundBlendColor.invoke(target); } catch (Throwable ignored) {}
+        try { setMiBackgroundBlurMode.invoke(target, 0); } catch (Throwable ignored) {}
+        try { setMiViewBlurMode.invoke(target, 0); } catch (Throwable ignored) {}
+        try { setMiBackgroundBlurRadius.invoke(target, 0); } catch (Throwable ignored) {}
+        try { setPassWindowBlurEnabled.invoke(target, false); } catch (Throwable ignored) {}
+    }
+
+    private static void log(String message) {
         try {
-            Object viewObject = wrapperViewField.get(wrapper);
-            if (!(viewObject instanceof View view)) return;
-            if (!contentBackground.containsKey(view)) return;
-            Drawable original = contentBackground.remove(view);
-            view.setBackground(original);
+            Api101Bridge.log(LiquidUiLog.format(TAG + " " + message));
         } catch (Throwable ignored) {
+            android.util.Log.i("LiquidUI", "[LUI]" + TAG + " " + message);
         }
-    }
-
-    void restoreAll() {
-        for (var entry : new WeakHashMap<>(backgroundAlpha).entrySet()) {
-            View view = entry.getKey();
-            if (view != null) view.setAlpha(entry.getValue());
-        }
-        backgroundAlpha.clear();
-        for (var entry : new WeakHashMap<>(contentBackground).entrySet()) {
-            View view = entry.getKey();
-            if (view != null) view.setBackground(entry.getValue());
-        }
-        contentBackground.clear();
     }
 
     private static <T extends java.lang.reflect.AccessibleObject> T accessible(T value) {
