@@ -44,6 +44,10 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             "com.android.systemui.shade.NotificationShadeWindowView";
     private static final String NOTIFICATION_PANEL =
             "com.android.systemui.shade.NotificationPanelView";
+    private static final String SHADE_BACKGROUND_VIEW =
+            "com.miui.systemui.shade.ShadeBackgroundView";
+    private static final String SHARED_NOTIFICATION_CONTAINER =
+            "com.android.systemui.statusbar.notification.stack.ui.view.SharedNotificationContainer";
     private static final String BLUR_UTILS = "com.android.systemui.statusbar.BlurUtils";
     private static final String VIEW_ROOT_IMPL = "android.view.ViewRootImpl";
     private static final String FRAMEWORK_VIEW = "android.view.View";
@@ -95,6 +99,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
         final Method setPassWindowBlurEnabled;
         final Method setMiBackgroundBlurMode;
         final Method blurUtilsApplyBlur;
+        final Method stackBlurRadius;
         final Method viewRootGetView;
         final Method displayAreaAppeared;
         final Method displayAreaVanished;
@@ -106,6 +111,8 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
         final Field blendBackgroundView;
         final Class<?> shadeWindowClass;
         final Class<?> notificationPanelClass;
+        final Class<?> shadeBackgroundClass;
+        final Class<?> sharedNotificationContainerClass;
         try {
             Class<?> rowClass = TargetClassResolver.require(classLoader, ROW);
             Class<?> activatableClass = TargetClassResolver.require(classLoader, ACTIVATABLE);
@@ -120,6 +127,9 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
             Class<?> blendBackgroundClass = TargetClassResolver.require(classLoader, SHADE_BLEND_BACKGROUND);
             shadeWindowClass = TargetClassResolver.require(classLoader, SHADE_WINDOW);
             notificationPanelClass = TargetClassResolver.require(classLoader, NOTIFICATION_PANEL);
+            shadeBackgroundClass = TargetClassResolver.require(classLoader, SHADE_BACKGROUND_VIEW);
+            sharedNotificationContainerClass =
+                    TargetClassResolver.require(classLoader, SHARED_NOTIFICATION_CONTAINER);
             Class<?> blurUtilsClass = TargetClassResolver.require(classLoader, BLUR_UTILS);
             Class<?> viewRootImplClass = TargetClassResolver.require(classLoader, VIEW_ROOT_IMPL);
             Class<?> frameworkViewClass = TargetClassResolver.require(classLoader, FRAMEWORK_VIEW);
@@ -169,6 +179,7 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     "setMiBackgroundBlurMode", int.class));
             blurUtilsApplyBlur = accessible(blurUtilsClass.getDeclaredMethod(
                     "applyBlur", viewRootImplClass, int.class, boolean.class));
+            stackBlurRadius = accessible(stackClass.getDeclaredMethod("setBlurRadius", float.class));
             viewRootGetView = accessible(viewRootImplClass.getDeclaredMethod("getView"));
             displayAreaAppeared = accessible(rootTaskDisplayAreaClass.getDeclaredMethod(
                     "onDisplayAreaAppeared", displayAreaInfoClass, android.view.SurfaceControl.class));
@@ -260,13 +271,17 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> {
                         Object target = blurProviderView.get(thisObject);
-                        if (notificationPanelClass.isInstance(target)) {
+                        if (isNotificationBlurAuthorityTarget(
+                                target, notificationPanelClass, shadeBackgroundClass,
+                                sharedNotificationContainerClass)) {
                             authorityState.observe(blurProviderPassBlur.getBoolean(thisObject));
                         }
                         if (!activityState.isActive() || args.length == 0 || !(args[0] instanceof Float ratio)) {
                             return;
                         }
-                        if (!isShadeBlurTarget(target, shadeWindowClass, notificationPanelClass)) return;
+                        if (!isShadeBlurTarget(
+                                target, shadeWindowClass, notificationPanelClass, shadeBackgroundClass,
+                                sharedNotificationContainerClass)) return;
                         args[0] = NotificationShadeBlurPolicy.blurRatio(true, ratio);
                         setMiBackgroundBlurMode.invoke(target, 0);
                     })::unhook);
@@ -278,7 +293,9 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                             return;
                         }
                         Object target = blendBackgroundView.get(thisObject);
-                        if (!isShadeBlendTarget(target, shadeWindowClass, notificationPanelClass)) return;
+                        if (!isShadeBlendTarget(
+                                target, shadeWindowClass, notificationPanelClass, shadeBackgroundClass,
+                                sharedNotificationContainerClass)) return;
                         args[0] = NotificationShadeBlurPolicy.enabled(true, requested);
                     })::unhook);
             rollbacks.add(argumentBackend.intercept(
@@ -288,6 +305,16 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                         if (args.length == 0 || !(args[0] instanceof Boolean requested)) return;
                         if (!notificationPanelClass.isInstance(thisObject)) return;
                         authorityState.observe(requested);
+                    })::unhook);
+            rollbacks.add(argumentBackend.intercept(
+                    stackBlurRadius,
+                    ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> {
+                        if (!activityState.isActive() || args.length == 0
+                                || !(args[0] instanceof Float radius)) {
+                            return;
+                        }
+                        args[0] = NotificationShadeBlurPolicy.blurRatio(true, radius);
                     })::unhook);
             rollbacks.add(argumentBackend.intercept(
                     blurUtilsApplyBlur,
@@ -312,15 +339,41 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
     }
 
     private static boolean isShadeBlurTarget(
-            Object value, Class<?> shadeWindowClass, Class<?> notificationPanelClass) {
-        return shadeWindowClass.isInstance(value) || notificationPanelClass.isInstance(value);
+            Object value,
+            Class<?> shadeWindowClass,
+            Class<?> notificationPanelClass,
+            Class<?> shadeBackgroundClass,
+            Class<?> sharedNotificationContainerClass) {
+        return shadeWindowClass.isInstance(value)
+                || notificationPanelClass.isInstance(value)
+                || shadeBackgroundClass.isInstance(value)
+                || sharedNotificationContainerClass.isInstance(value);
     }
 
     private static boolean isShadeBlendTarget(
-            Object value, Class<?> shadeWindowClass, Class<?> notificationPanelClass) {
+            Object value,
+            Class<?> shadeWindowClass,
+            Class<?> notificationPanelClass,
+            Class<?> shadeBackgroundClass,
+            Class<?> sharedNotificationContainerClass) {
+        if (shadeBackgroundClass.isInstance(value)) return true;
+        if (sharedNotificationContainerClass.isInstance(value)) return true;
         if (!(value instanceof View view)) return false;
         Object parent = view.getParent();
-        return shadeWindowClass.isInstance(parent) || notificationPanelClass.isInstance(parent);
+        return shadeWindowClass.isInstance(parent)
+                || notificationPanelClass.isInstance(parent)
+                || sharedNotificationContainerClass.isInstance(parent);
+    }
+
+    private static boolean isNotificationBlurAuthorityTarget(
+            Object value,
+            Class<?> notificationPanelClass,
+            Class<?> shadeBackgroundClass,
+            Class<?> sharedNotificationContainerClass) {
+        if (notificationPanelClass.isInstance(value)) return true;
+        if (sharedNotificationContainerClass.isInstance(value)) return true;
+        if (!(value instanceof View view) || !shadeBackgroundClass.isInstance(value)) return false;
+        return sharedNotificationContainerClass.isInstance(view.getParent());
     }
 
     private static <T extends java.lang.reflect.AccessibleObject> T accessible(T value) {
