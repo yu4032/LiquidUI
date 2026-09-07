@@ -13,12 +13,21 @@ public class NotificationOesMappingContractTest {
     }
 
     @Test
-    public void rotationCorrectionPrecedesSurfaceTextureMatrixWithoutCropInversion() throws Exception {
+    public void rendererUsesOneSharedWindowToOesTransformWithoutShaderOffsets() throws Exception {
         String shader = source("src/main/java/com/hellovoid/liquidui/glass/notification/Miuix307PassBlurShaders.java");
+        String renderer = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
 
-        assertTrue(shader.contains("vec2 orientedUv = orientRootUv(rootUv);"));
-        assertTrue(shader.contains("uTexMatrix * vec4(orientedUv, 0.0, 1.0)"));
+        assertTrue(shader.contains("uniform mat4 uWindowUvToOes;"));
+        assertTrue(shader.contains("uWindowUvToOes * vec4(vUv, 0.0, 1.0)"));
+        assertFalse(shader.contains("uTexMatrix"));
+        assertFalse(shader.contains("uBackdropRect"));
+        assertFalse(shader.contains("uConfigRot"));
+        assertFalse(shader.contains("orientRootUv"));
+        assertFalse(shader.contains("mirrorDockUv"));
         assertFalse(shader.contains("compensateSurfaceTextureCropPreservingOrientation"));
+        assertTrue(renderer.contains("DisplayTransformEngine.compose"));
+        assertTrue(renderer.contains("requireUniform(normalizeProgram, \"uWindowUvToOes\")"));
+        assertFalse(renderer.contains("compensateSurfaceTextureCropPreservingOrientation"));
     }
 
     @Test
