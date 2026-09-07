@@ -8,36 +8,35 @@ import static org.junit.Assert.assertTrue;
 
 public class DisplayTransformEngineContractTest {
     @Test
-    public void inverseBufferRotationPrecedesSurfaceTextureCrop() {
-        float[] crop = affine(0.25f, 0f, 0.05f, 0f, -0.25f, 0.75f);
+    public void surfaceTextureCropIsNeutralizedButOrientationIsPreserved() {
+        float[] croppedFlipY = affine(0.25f, 0f, 0.05f, 0f, -0.25f, 0.75f);
 
-        // configRotation is ViewRoot's buffer transform hint: it describes how the buffer is
-        // rotated to appear in the Window. Sampling travels Window -> buffer, so use its inverse.
-        assertPoint(0, 0f, 0f, crop, 0.05f, 0.75f);
-        assertPoint(1, 0f, 0f, crop, 0.30f, 0.75f);
-        assertPoint(2, 0f, 0f, crop, 0.30f, 0.50f);
-        assertPoint(3, 0f, 0f, crop, 0.05f, 0.50f);
+        // LiquidDock's validated Stage-B mapping treats SurfaceTexture crop/scale/translation as
+        // producer metadata, not Window geometry. Only the signed-permutation orientation remains.
+        assertPoint(0, 0f, 0f, croppedFlipY, 0f, 1f);
+        assertPoint(1, 0f, 0f, croppedFlipY, 0f, 0f);
+        assertPoint(2, 0f, 0f, croppedFlipY, 1f, 0f);
+        assertPoint(3, 0f, 0f, croppedFlipY, 1f, 1f);
 
         for (int rotation = 0; rotation < 4; rotation++) {
             DisplayTransform transform = DisplayTransformEngine.compose(
-                    snapshot(rotation, crop, 7L, 11L));
-            float[] center = transform.map(0.5f, 0.5f);
-            assertEquals(0.175f, center[0], 0.0001f);
-            assertEquals(0.625f, center[1], 0.0001f);
+                    snapshot(rotation, croppedFlipY, 7L, 11L));
+            assertMapped(transform, 0.5f, 0.5f, 0.5f, 0.5f);
         }
     }
 
     @Test
-    public void landscapeTransformHintsReverseVerticalSamplingDirection() {
-        DisplayTransform clockwiseHint = DisplayTransformEngine.compose(
-                snapshot(1, identity(), 7L, 11L));
-        DisplayTransform counterClockwiseHint = DisplayTransformEngine.compose(
-                snapshot(3, identity(), 7L, 11L));
+    public void oppositeLandscapeRotationsKeepCorrectTopBottomDirection() {
+        float[] croppedFlipY = affine(0.25f, 0f, 0.05f, 0f, -0.25f, 0.75f);
+        DisplayTransform landscape = DisplayTransformEngine.compose(
+                snapshot(1, croppedFlipY, 7L, 11L));
+        DisplayTransform reverseLandscape = DisplayTransformEngine.compose(
+                snapshot(3, croppedFlipY, 7L, 11L));
 
-        // ROTATE_90 displays buffer bottom-right at Window bottom-left, so reverse sampling maps
-        // Window bottom-left back to buffer bottom-right. ROTATE_270 is the opposite mapping.
-        assertMapped(clockwiseHint, 0f, 0f, 1f, 0f);
-        assertMapped(counterClockwiseHint, 0f, 0f, 0f, 1f);
+        assertMapped(landscape, 0f, 0f, 0f, 0f);
+        assertMapped(landscape, 0f, 1f, 1f, 0f);
+        assertMapped(reverseLandscape, 0f, 0f, 1f, 1f);
+        assertMapped(reverseLandscape, 0f, 1f, 0f, 1f);
     }
 
     @Test
@@ -56,6 +55,16 @@ public class DisplayTransformEngineContractTest {
     }
 
     @Test
+    public void nonOrthogonalSurfaceTransformFailsSafeToFrameworkMatrix() {
+        float[] shear = affine(0.8f, 0.2f, 0.05f, 0.1f, 0.7f, 0.1f);
+        DisplayTransform transform = DisplayTransformEngine.compose(
+                snapshot(0, shear, 7L, 11L));
+
+        assertMapped(transform, 0f, 0f, 0.05f, 0.1f);
+        assertMapped(transform, 1f, 1f, 1.05f, 0.9f);
+    }
+
+    @Test
     public void generationsAndMatrixOwnershipArePartOfValidity() {
         float[] matrix = identity();
         DisplayTransformSnapshot snapshot = snapshot(3, matrix, 7L, 11L);
@@ -68,7 +77,7 @@ public class DisplayTransformEngineContractTest {
         assertTrue(transform.matches(7L, 11L));
         assertFalse(transform.matches(8L, 11L));
         assertFalse(transform.matches(7L, 12L));
-        assertMapped(transform, 0f, 0f, 0f, 1f);
+        assertMapped(transform, 0f, 0f, 1f, 0f);
     }
 
     private static void assertPoint(
@@ -77,8 +86,6 @@ public class DisplayTransformEngineContractTest {
         DisplayTransform transform = DisplayTransformEngine.compose(
                 snapshot(rotation, matrix, 7L, 11L));
         assertMapped(transform, x, y, expectedX, expectedY);
-        assertMapped(transform, 1f - x, 1f - y,
-                0.35f - expectedX, 1.25f - expectedY);
     }
 
     private static void assertMapped(
