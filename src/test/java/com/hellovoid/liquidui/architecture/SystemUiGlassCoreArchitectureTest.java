@@ -28,7 +28,7 @@ public class SystemUiGlassCoreArchitectureTest {
         assertEquals(1L, count(module, "new SystemUiGlassCore("));
         assertTrue(core.contains("new WindowGlassRegistry"));
         assertTrue(core.contains("sessionFor(Object root, int displayId)"));
-        assertTrue(core.contains("sessionFor(View attachedView)"));
+        assertTrue(core.contains("public WindowGlassSession sessionFor(View "));
         assertTrue(core.contains("new HandlerThread("));
         assertTrue(core.contains("new Handler(renderThread.getLooper())"));
         assertEquals(1L, count(coreTree, "new HandlerThread("));
