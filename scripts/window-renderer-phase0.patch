@@ -1,0 +1,471 @@
+--- a/src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java
++++ b/src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java
+@@ -1 +1 @@
+-package com.hellovoid.liquidui.glass.notification;
++package com.hellovoid.liquidui.glass.core;
+@@ -15 +14,0 @@
+-import android.os.HandlerThread;
+@@ -26,3 +24,0 @@
+-import com.hellovoid.liquidui.glass.core.DisplayTransform;
+-import com.hellovoid.liquidui.glass.core.DisplayTransformEngine;
+-import com.hellovoid.liquidui.glass.core.DisplayTransformSnapshot;
+@@ -38,0 +35,3 @@
++import java.util.LinkedHashMap;
++import java.util.Map;
++import java.util.Set;
+@@ -44 +43 @@
+- * Stage A normalizes SurfaceFlinger's external-OES PassBlur producer into Dock-local RGBA while
++ * Stage A normalizes SurfaceFlinger's external-OES PassBlur producer into Window-local RGBA while
+@@ -49 +48 @@
+-final class NotificationPassBlurTextureView extends TextureView
++final class WindowGlassRenderer extends TextureView
+@@ -51,4 +50,2 @@
+-    interface ActivationListener {
+-        void onSourceBound(long sourceGeneration);
+-        void onFirstFrameActive(
+-                long sourceGeneration, long sceneGeneration, long swapSequence);
++    interface PresentationListener {
++        void onPresentationChanged(Set<String> authorizedNodeIds, Set<String> revokedNodeIds);
+@@ -57 +54 @@
+-    private static final String TAG = "[NotifGlass][PBTX]";
++    private static final String TAG = "[GlassCore][Renderer]";
+@@ -121 +118 @@
+-        final Miuix307BackdropMapping.Coverage coverage;
++        final BackdropMapping.Coverage coverage;
+@@ -139 +136 @@
+-                Miuix307BackdropMapping.Coverage coverage) {
++                BackdropMapping.Coverage coverage) {
+@@ -200,3 +197,5 @@
+-    private final NotificationGlassSceneState sceneState;
+-    private final NotificationGlassCompositor compositor;
+-    private final ActivationListener activationListener;
++    private final GlassSceneState sceneState;
++    private final WindowPresentationState presentationState;
++    private final MaterialProfileRegistry materialProfiles;
++    private final GlassCompositor compositor;
++    private final PresentationListener presentationListener;
+@@ -204 +202,0 @@
+-    private final HandlerThread renderThread;
+@@ -206,0 +205,2 @@
++    private final FrameCoordinator frameCoordinator;
++    private final ViewRootSurfaceObserver rootSurfaceObserver;
+@@ -208,5 +208 @@
+-    private final AtomicBoolean drawRequested = new AtomicBoolean(false);
+-    private final AtomicBoolean drawRequestedFromFrame = new AtomicBoolean(false);
+-    private final AtomicBoolean drawScheduled = new AtomicBoolean(false);
+-    private final ZeroCopyProducerRecoveryState producerRecovery =
+-            new ZeroCopyProducerRecoveryState();
++    private final ProducerRecoveryState producerRecovery = new ProducerRecoveryState();
+@@ -218,0 +215 @@
++    private volatile boolean rootSurfaceAvailable = true;
+@@ -223 +219,0 @@
+-    private long nextProducerGeneration;
+@@ -237,2 +233,2 @@
+-    // Stage A samples a real overscan ring around the visible Dock. The sample-valid
+-    // rectangle is used only by the normalization mirror guard; Dock validity remains separate
++    // Stage A samples a real overscan ring around the visible Window. The sample-valid
++    // rectangle is used only by the normalization mirror guard; Window validity remains separate
+@@ -257,2 +253,2 @@
+-    private volatile Miuix307BackdropMapping.Coverage producerCoverage =
+-            Miuix307BackdropMapping.Coverage.FULL;
++    private volatile BackdropMapping.Coverage producerCoverage =
++            BackdropMapping.Coverage.FULL;
+@@ -288,0 +285,3 @@
++    private volatile boolean preparedBackdropReady;
++    private volatile long preparedProducerGeneration = -1L;
++    private volatile BackdropSnapshot preparedBackdropSnapshot;
+@@ -292 +291 @@
+-    NotificationPassBlurTextureView(
++    WindowGlassRenderer(
+@@ -295,2 +294,4 @@
+-            NotificationGlassSceneState sceneState,
+-            ActivationListener activationListener,
++            GlassSceneState sceneState,
++            WindowPresentationState presentationState,
++            Handler renderHandler,
++            PresentationListener presentationListener,
+@@ -301,2 +302,3 @@
+-        this.compositor = new NotificationGlassCompositor(sceneState);
+-        this.activationListener = activationListener;
++        this.presentationState = presentationState;
++        this.renderHandler = renderHandler;
++        this.presentationListener = presentationListener;
+@@ -304 +306 @@
+-        portablePrismalParams = NotificationGlassMaterial.defaults(
++        materialProfiles = new MaterialProfileRegistry(
+@@ -305,0 +308,2 @@
++        this.compositor = new GlassCompositor(sceneState, materialProfiles);
++        portablePrismalParams = materialProfiles.paramsFor(GlassMaterialProfile.CARD);
+@@ -317,3 +320,0 @@
+-        renderThread = new HandlerThread("LiquidUI-NotifGlass-EGL");
+-        renderThread.start();
+-        renderHandler = new Handler(renderThread.getLooper());
+@@ -320,0 +322,14 @@
++        frameCoordinator = new FrameCoordinator(
++                command -> this.renderHandler.post(command),
++                this::renderPendingFrame);
++        rootSurfaceObserver = new ViewRootSurfaceObserver(
++                materialHost,
++                new ViewRootSurfaceObserver.Listener() {
++                    @Override public void onSurfaceDestroyed() {
++                        handleRootSurfaceDestroyed();
++                    }
++
++                    @Override public void onSurfaceReady(String event) {
++                        handleRootSurfaceReady(event);
++                    }
++                });
+@@ -331,10 +346 @@
+-    void requestActivationRetry() {
+-        if (shuttingDown) return;
+-        renderHandler.post(() -> {
+-            if (shuttingDown) return;
+-            firstDrawLogged = false;
+-            if (producerRecovery.hasFreshFrame()) drawLatestFrame(false);
+-        });
+-    }
+-
+-    void requestSceneRefresh() {
++    void requestScene() {
+@@ -343 +349,35 @@
+-        if (producerRecovery.hasFreshFrame()) scheduleDraw(false);
++        GlassSceneSnapshot scene = sceneState.latest();
++        Set<String> revoked = presentationState.scene(
++                scene != null ? scene.generation() : -1L, lifecycleMap(scene));
++        dispatchPresentation(Set.of(), revoked);
++        frameCoordinator.requestScene();
++    }
++
++
++    private void handleRootSurfaceDestroyed() {
++        if (shuttingDown) return;
++        rootSurfaceAvailable = false;
++        SystemUiPassBlurBridge.Binding stale = binding;
++        binding = null;
++        if (stale != null) SystemUiPassBlurBridge.invalidate(stale);
++        long producerGeneration = inputProducerGeneration;
++        ProducerRecoveryState.Decision recovery = producerRecovery.onRootLost(producerGeneration);
++        frameAvailable.set(false);
++        preparedBackdropReady = false;
++        gpuBackdropActive = false;
++        dispatchPresentation(Set.of(), presentationState.sourceLost(producerGeneration));
++        resetBoundGeometry();
++        if (recovery.accepted() && recovery.recreateProducer()) {
++            renderHandler.post(() -> recreateInputProducer("root-destroyed"));
++        }
++    }
++
++    private void handleRootSurfaceReady(String event) {
++        if (shuttingDown) return;
++        rootSurfaceAvailable = true;
++        if (producerRecovery.isRebindPending()
++                && inputProducerSurface != null && inputSurfaceTexture != null) {
++            post(() -> bindProducerWhenReady(0));
++        } else {
++            rebindProducer("root-" + event);
++        }
+@@ -358,0 +399 @@
++                preparedBackdropReady = false;
+@@ -359,0 +401,8 @@
++                SystemUiPassBlurBridge.Binding stateBinding = binding;
++                if (stateBinding != null && stateBinding.bound && enabled && vendorPassBlurEnabled) {
++                    dispatchPresentation(Set.of(), presentationState.sourceBound(
++                            stateBinding.surfaceSequenceId, inputProducerGeneration,
++                            materialProfiles.profileVersion()));
++                } else {
++                    dispatchPresentation(Set.of(), presentationState.sourceLost(inputProducerGeneration));
++                }
+@@ -408,0 +458 @@
++        dispatchPresentation(Set.of(), presentationState.sourceLost(inputProducerGeneration));
+@@ -409,0 +460 @@
++        preparedBackdropReady = false;
+@@ -417,2 +468,2 @@
+-            ZeroCopyProducerRecoveryState.Decision recovery = producerRecovery.onRebindRequested();
+-            if (recovery.accepted && recovery.recreateProducer) {
++            ProducerRecoveryState.Decision recovery = producerRecovery.onRebindRequested();
++            if (recovery.accepted() && recovery.recreateProducer()) {
+@@ -427 +478 @@
+-        ZeroCopyProducerRecoveryState.Decision recovery =
++        ProducerRecoveryState.Decision recovery =
+@@ -429,2 +480,2 @@
+-        if (!recovery.accepted) return;
+-        if (recovery.clearFrameworkBinding) {
++        if (!recovery.accepted()) return;
++        if (recovery.clearFrameworkBinding()) {
+@@ -436 +487,3 @@
+-        if (recovery.clearFrameAvailable) frameAvailable.set(false);
++        preparedBackdropReady = false;
++        dispatchPresentation(Set.of(), presentationState.sourceLost(inputProducerGeneration));
++        if (recovery.clearFrameAvailable()) frameAvailable.set(false);
+@@ -444 +497 @@
+-        if (recovery.recreateProducer) {
++        if (recovery.recreateProducer()) {
+@@ -476 +529 @@
+-            ZeroCopyProducerRecoveryState.Decision recovery =
++            ProducerRecoveryState.Decision recovery =
+@@ -478 +531 @@
+-            if (recovery.requestBind && vendorPassBlurEnabled) {
++            if (recovery.requestBind() && vendorPassBlurEnabled && rootSurfaceAvailable) {
+@@ -490,0 +544,2 @@
++        dispatchPresentation(Set.of(), presentationState.detach());
++        frameCoordinator.cancel();
+@@ -491,0 +547 @@
++        rootSurfaceObserver.detach();
+@@ -500 +555,0 @@
+-        renderThread.quitSafely();
+@@ -505,0 +561,2 @@
++        rootSurfaceAvailable = true;
++        rootSurfaceObserver.attach();
+@@ -514,0 +572 @@
++        rootSurfaceObserver.detach();
+@@ -543 +601,2 @@
+-                drawLatestFrame(false);
++                preparedBackdropReady = false;
++                frameCoordinator.requestSourceFrame();
+@@ -556,0 +616,3 @@
++        preparedBackdropReady = false;
++        gpuBackdropActive = false;
++        dispatchPresentation(Set.of(), presentationState.sourceLost(inputProducerGeneration));
+@@ -601 +663,2 @@
+-            drawLatestFrame(false);
++            preparedBackdropReady = false;
++            frameCoordinator.requestSourceFrame();
+@@ -681,2 +744,2 @@
+-                Miuix307PassBlurShaders.QUAD_VERTEX,
+-                Miuix307PassBlurShaders.OES_NORMALIZE_FRAGMENT);
++                PassBlurShaders.QUAD_VERTEX,
++                PassBlurShaders.OES_NORMALIZE_FRAGMENT);
+@@ -684,2 +747,2 @@
+-                Miuix307PassBlurShaders.QUAD_VERTEX,
+-                Miuix307PrismalCompositeShaders.FRAGMENT);
++                PassBlurShaders.QUAD_VERTEX,
++                PassBlurShaders.COMPOSITE_FRAGMENT);
+@@ -718 +781 @@
+-        inputProducerGeneration = ++nextProducerGeneration;
++        inputProducerGeneration = producerRecovery.observeProducer();
+@@ -726 +789 @@
+-            scheduleDraw(true);
++            frameCoordinator.requestSourceFrame();
+@@ -762,28 +825 @@
+-    private void scheduleDraw(boolean fromFrameCallback) {
+-        if (shuttingDown) return;
+-        drawRequested.set(true);
+-        if (fromFrameCallback) drawRequestedFromFrame.set(true);
+-        if (!drawScheduled.compareAndSet(false, true)) return;
+-        renderHandler.post(this::drainDrawRequests);
+-    }
+-
+-    private void drainDrawRequests() {
+-        if (shuttingDown) {
+-            drawRequested.set(false);
+-            drawRequestedFromFrame.set(false);
+-            drawScheduled.set(false);
+-            return;
+-        }
+-
+-        boolean requested = drawRequested.getAndSet(false);
+-        boolean fromFrameCallback = drawRequestedFromFrame.getAndSet(false);
+-        if (requested) drawLatestFrame(fromFrameCallback);
+-
+-        drawScheduled.set(false);
+-        if (!shuttingDown && drawRequested.get()
+-                && drawScheduled.compareAndSet(false, true)) {
+-            renderHandler.post(this::drainDrawRequests);
+-        }
+-    }
+-
+-    private void drawLatestFrame(boolean fromFrameCallback) {
++    private void renderPendingFrame(boolean sourcePending, boolean scenePending) {
+@@ -800 +836,2 @@
+-            if (frameAvailable.getAndSet(false)) {
++            boolean consumedFreshSource = false;
++            if (sourcePending && frameAvailable.getAndSet(false)) {
+@@ -803,0 +841,7 @@
++                consumedFreshSource = true;
++                SystemUiPassBlurBridge.Binding freshBinding = binding;
++                if (freshBinding != null && freshBinding.bound
++                        && freshBinding.endpointGeneration == inputProducerGeneration) {
++                    presentationState.freshFrame(
++                            freshBinding.surfaceSequenceId, inputProducerGeneration);
++                }
+@@ -814 +858 @@
+-            if (!firstFrameLogged) {
++            if (!firstFrameLogged && consumedFreshSource) {
+@@ -818 +862 @@
+-            if (!firstMatrixLogged) {
++            if (!firstMatrixLogged && consumedFreshSource) {
+@@ -824,5 +868,22 @@
+-            ensureFboSizeExact(mapping.sampleWidth, mapping.sampleHeight);
+-            DisplayTransform displayTransform = renderNormalizationPass(mapping);
+-            prismalRenderer.prepareBackdrop(
+-                    rawTexture, mapping.sampleWidth, mapping.sampleHeight, mapping.prismalParams);
+-            NotificationGlassSceneSnapshot scene = compositor.latestScene();
++            DisplayTransform displayTransform = null;
++            boolean mustPrepareBackdrop = consumedFreshSource
++                    || !preparedBackdropReady
++                    || preparedProducerGeneration != inputProducerGeneration
++                    || preparedBackdropSnapshot != mapping;
++            if (mustPrepareBackdrop) {
++                if (!consumedFreshSource && !sourcePending) return;
++                ensureFboSizeExact(mapping.sampleWidth, mapping.sampleHeight);
++                displayTransform = renderNormalizationPass(mapping);
++                prismalRenderer.prepareBackdrop(
++                        rawTexture, mapping.sampleWidth, mapping.sampleHeight, mapping.prismalParams);
++                preparedBackdropReady = true;
++                preparedProducerGeneration = inputProducerGeneration;
++                preparedBackdropSnapshot = mapping;
++            }
++
++            GlassSceneSnapshot scene = compositor.latestScene();
++            Map<String, Long> currentNodes = lifecycleMap(scene);
++            Set<String> sceneRevoked = presentationState.scene(
++                    scene != null ? scene.generation() : -1L, currentNodes);
++            dispatchPresentation(Set.of(), sceneRevoked);
++
+@@ -832 +893 @@
+-            compositor.drawFrame(prismalRenderer, mapping.prismalParams, scene,
++            compositor.drawFrame(prismalRenderer, scene,
+@@ -841,3 +901,0 @@
+-            // UI geometry may advance while this GL frame is being prepared. Never publish a
+-            // frame assembled from an obsolete generation; updateBackdropMapping() will queue the
+-            // matching generation when a consumed producer frame is available.
+@@ -856 +914 @@
+-            long activationSceneGeneration = scene != null ? scene.generation : -1L;
++            long activationSceneGeneration = scene != null ? scene.generation() : -1L;
+@@ -863,0 +922,12 @@
++            if (gpuBackdropActive) {
++                GlassActivationToken token = new GlassActivationToken(
++                        currentBinding.surfaceSequenceId,
++                        activationSourceGeneration,
++                        activationSceneGeneration,
++                        materialProfiles.profileVersion(),
++                        activationSwapSequence,
++                        currentNodes);
++                Set<String> authorized = presentationState.accept(token);
++                dispatchPresentation(authorized, Set.of());
++            }
++
+@@ -865 +935 @@
+-                    && scene != null && scene.size() > 0) {
++                    && scene != null && !scene.nodes().isEmpty()) {
+@@ -867,6 +936,0 @@
+-                if (activationListener != null) {
+-                    post(() -> activationListener.onFirstFrameActive(
+-                                activationSourceGeneration,
+-                                activationSceneGeneration,
+-                                activationSwapSequence));
+-                }
+@@ -880 +944 @@
+-                        + " validDockRect=[" + mapping.validDockLeft + "," + mapping.validDockBottom + ","
++                        + " validWindowRect=[" + mapping.validDockLeft + "," + mapping.validDockBottom + ","
+@@ -886 +950 @@
+-                        + " sourceGen=" + activationSourceGeneration
++                        + " producerGen=" + activationSourceGeneration
+@@ -889,3 +953,4 @@
+-                        + " frameCallback=" + fromFrameCallback);
+-            }
+-            if (gpuBackdropActive && !stageBDiagnosticsLogged) {
++                        + " sourcePending=" + sourcePending
++                        + " scenePending=" + scenePending);
++            }
++            if (gpuBackdropActive && !stageBDiagnosticsLogged && displayTransform != null) {
+@@ -893,0 +959 @@
++                DisplayTransform finalDisplayTransform = displayTransform;
+@@ -895 +961 @@
+-                        displayTransform, textureMatrixSnapshot, mapping));
++                        finalDisplayTransform, textureMatrixSnapshot, mapping));
+@@ -901,0 +968,25 @@
++        }
++    }
++
++    private static Map<String, Long> lifecycleMap(GlassSceneSnapshot scene) {
++        if (scene == null || scene.nodes().isEmpty()) return Map.of();
++        Map<String, Long> result = new LinkedHashMap<>();
++        for (GlassNode node : scene.nodes()) {
++            if (node != null && node.drawable()) {
++                result.put(node.id(), node.lifecycleGeneration());
++            }
++        }
++        return Map.copyOf(result);
++    }
++
++    private void dispatchPresentation(Set<String> authorized, Set<String> revoked) {
++        if ((authorized == null || authorized.isEmpty())
++                && (revoked == null || revoked.isEmpty())) return;
++        PresentationListener listener = presentationListener;
++        if (listener == null) return;
++        Set<String> safeAuthorized = authorized == null ? Set.of() : Set.copyOf(authorized);
++        Set<String> safeRevoked = revoked == null ? Set.of() : Set.copyOf(revoked);
++        if (android.os.Looper.myLooper() == getContext().getMainLooper()) {
++            listener.onPresentationChanged(safeAuthorized, safeRevoked);
++        } else {
++            mainHandler.post(() -> listener.onPresentationChanged(safeAuthorized, safeRevoked));
+@@ -912,2 +1003,2 @@
+-        NotificationGlassSceneSnapshot scene = compositor.latestScene();
+-        log("[NotifGlass][PBTX][Power] producerFps=" + producerFps
++        GlassSceneSnapshot scene = compositor.latestScene();
++        log("[GlassCore][PBTX][Power] producerFps=" + producerFps
+@@ -915 +1006 @@
+-                + " notificationNodes=" + (scene != null ? scene.size() : 0)
++                + " glassNodes=" + (scene != null ? scene.nodes().size() : 0)
+@@ -972 +1063 @@
+-        if (mapping.coverage == Miuix307BackdropMapping.Coverage.OUTSIDE
++        if (mapping.coverage == BackdropMapping.Coverage.OUTSIDE
+@@ -977 +1068 @@
+-        if (mapping.coverage == Miuix307BackdropMapping.Coverage.PARTIAL) {
++        if (mapping.coverage == BackdropMapping.Coverage.PARTIAL) {
+@@ -1027 +1118 @@
+-        if (shuttingDown || binding != null || !vendorPassBlurEnabled) return;
++        if (shuttingDown || binding != null || !vendorPassBlurEnabled || !rootSurfaceAvailable) return;
+@@ -1042 +1133 @@
+-            retryBind(attempt, "NotificationShade root not ready");
++            retryBind(attempt, "Window root not ready");
+@@ -1070 +1161 @@
+-            retryBind(attempt, "NotificationShade root changed before bind");
++            retryBind(attempt, "Window root changed before bind");
+@@ -1086,3 +1177,3 @@
+-        if (activationListener != null) {
+-            activationListener.onSourceBound(endpointGeneration);
+-        }
++        Set<String> revoked = presentationState.sourceBound(
++                next.surfaceSequenceId, endpointGeneration, materialProfiles.profileVersion());
++        dispatchPresentation(Set.of(), revoked);
+@@ -1098 +1189 @@
+-        log(" native NotificationShade PassBlur source bound"
++        log(" native Window PassBlur source bound"
+@@ -1112 +1203,3 @@
+-            if (activationListener != null) activationListener.onTerminalFailure("bind", failure);
++            Set<String> revoked = presentationState.terminalFailure();
++            dispatchPresentation(Set.of(), revoked);
++            if (presentationListener != null) presentationListener.onTerminalFailure("bind", failure);
+@@ -1172 +1265 @@
+-        ZeroCopyProducerRecoveryState.Decision invalidated =
++        ProducerRecoveryState.Decision invalidated =
+@@ -1174 +1267,4 @@
+-        if (invalidated.clearFrameAvailable) frameAvailable.set(false);
++        if (invalidated.clearFrameAvailable()) frameAvailable.set(false);
++        dispatchPresentation(Set.of(), presentationState.sourceBound(
++                binding.surfaceSequenceId, inputProducerGeneration, materialProfiles.profileVersion()));
++        preparedBackdropReady = false;
+@@ -1263 +1359 @@
+-        Miuix307BackdropMapping.Result sample = Miuix307BackdropMapping.compute(
++        BackdropMapping.Result sample = BackdropMapping.compute(
+@@ -1267 +1363 @@
+-        Miuix307BackdropMapping.Result dock = Miuix307BackdropMapping.compute(
++        BackdropMapping.Result window = BackdropMapping.compute(
+@@ -1351 +1447 @@
+-        if (producerRecovery.hasFreshFrame()) scheduleDraw(false);
++        if (producerRecovery.hasFreshFrame()) frameCoordinator.requestSourceFrame();
+@@ -1587 +1683,4 @@
+-        producerCoverage = Miuix307BackdropMapping.Coverage.FULL;
++        producerCoverage = BackdropMapping.Coverage.FULL;
++        preparedBackdropReady = false;
++        preparedProducerGeneration = -1L;
++        preparedBackdropSnapshot = null;
+@@ -1593,2 +1692,4 @@
+-        if (activationListener != null) {
+-            post(() -> activationListener.onTerminalFailure(stage, error));
++        Set<String> revoked = presentationState.terminalFailure();
++        dispatchPresentation(Set.of(), revoked);
++        if (presentationListener != null) {
++            post(() -> presentationListener.onTerminalFailure(stage, error));
