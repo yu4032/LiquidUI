@@ -34,13 +34,18 @@ public class NotificationGlassVisualCorrectnessArchitectureTest {
     }
 
     @Test
-    public void sharedNotificationHostHasNoSamplingOverscan() throws Exception {
-        String renderer = read(
-                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+    public void sharedNotificationHostForcesTotalSamplingInsetToZero() throws Exception {
+        String policy = read(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationZeroSamplingPolicy.java");
+        String session = read(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
 
-        assertFalse(renderer.contains("EDGE_OVERSCAN_DP"));
-        assertFalse(renderer.contains("PrismalSampling.requiredGuardPx"));
-        assertTrue(renderer.contains("return new SamplingInsets(0, 0, 0, 0);"));
+        assertTrue(policy.contains("topSamplingExtraPx"));
+        assertTrue(policy.contains("bottomSamplingExtraPx"));
+        assertTrue(policy.contains("leftSamplingExtraPx"));
+        assertTrue(policy.contains("rightSamplingExtraPx"));
+        assertTrue(policy.contains("Integer.MIN_VALUE"));
+        assertTrue(session.contains("NotificationZeroSamplingPolicy.apply(renderer)"));
     }
 
     @Test
