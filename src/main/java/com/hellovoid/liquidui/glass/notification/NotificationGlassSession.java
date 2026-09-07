@@ -67,6 +67,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
 
         renderer = new NotificationPassBlurTextureView(
                 parent.getContext(), stack, sceneState, this, authorityState.isEnabled());
+        NotificationZeroSamplingPolicy.apply(renderer);
         // Keep the TextureView VISIBLE so Android creates and retains its output SurfaceTexture.
         // Presentation is gated by alpha; a stale frame cannot remain visible after source loss.
         renderer.setVisibility(View.VISIBLE);
