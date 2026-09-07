@@ -34,11 +34,64 @@ jobs:
         run: |
           set -euo pipefail
 
-          git apply --check scripts/task7-notification-hook.patch
-          git apply scripts/task7-notification-hook.patch
-
           python3 - <<'PY'
           from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              source = p.read_text()
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one old fragment, found {count}')
+              p.write_text(source.replace(old, new, 1))
+
+          hook_path = 'src/main/java/com/hellovoid/liquidui/glass/notification/NotificationSharedGlassHook.java'
+          replace_once(
+              hook_path,
+              'import com.hellovoid.liquidui.hook.SystemUiHook;\n',
+              'import com.hellovoid.liquidui.hook.SystemUiHook;\n'
+              'import com.hellovoid.liquidui.glass.core.SystemUiGlassCore;\n',
+              'hook core import')
+          replace_once(
+              hook_path,
+              '    private final ArgumentRewriteHookBackend argumentBackend;\n'
+              '    private final boolean enabled;\n',
+              '    private final ArgumentRewriteHookBackend argumentBackend;\n'
+              '    private final SystemUiGlassCore glassCore;\n'
+              '    private final boolean enabled;\n',
+              'hook core field')
+          replace_once(
+              hook_path,
+              '            AfterMethodHookBackend afterBackend,\n'
+              '            ArgumentRewriteHookBackend argumentBackend,\n'
+              '            boolean enabled) {\n'
+              '        this.beforeBackend = Objects.requireNonNull(beforeBackend, "beforeBackend");\n'
+              '        this.afterBackend = Objects.requireNonNull(afterBackend, "afterBackend");\n'
+              '        this.argumentBackend = Objects.requireNonNull(argumentBackend, "argumentBackend");\n'
+              '        this.enabled = enabled;\n',
+              '            AfterMethodHookBackend afterBackend,\n'
+              '            ArgumentRewriteHookBackend argumentBackend,\n'
+              '            SystemUiGlassCore glassCore,\n'
+              '            boolean enabled) {\n'
+              '        this.beforeBackend = Objects.requireNonNull(beforeBackend, "beforeBackend");\n'
+              '        this.afterBackend = Objects.requireNonNull(afterBackend, "afterBackend");\n'
+              '        this.argumentBackend = Objects.requireNonNull(argumentBackend, "argumentBackend");\n'
+              '        this.glassCore = Objects.requireNonNull(glassCore, "glassCore");\n'
+              '        this.enabled = enabled;\n',
+              'hook constructor')
+          replace_once(
+              hook_path,
+              '            runtime = new NotificationGlassRuntime(\n'
+              '                    stackClass, collector, presentationController, activityState, authorityState);\n',
+              '            runtime = new NotificationGlassRuntime(\n'
+              '                    glassCore, stackClass, collector, presentationController,\n'
+              '                    activityState, authorityState);\n',
+              'hook runtime injection')
+          replace_once(
+              hook_path,
+              '            // with the one-per-NSSL shared renderer. No standalone GpuStream probe is instantiated.\n',
+              '            // with the Window-shared adapter. No standalone GpuStream probe is instantiated.\n',
+              'hook ownership comment')
 
           renderer = Path('src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java')
           source = renderer.read_text()
@@ -55,7 +108,7 @@ jobs:
           for old, new in replacements.items():
               if source.count(old) != 1:
                   raise SystemExit(f'expected exactly one renderer declaration: {old!r}')
-              source = source.replace(old, new)
+              source = source.replace(old, new, 1)
           renderer.write_text(source)
 
           collector = Path('src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java')
@@ -66,8 +119,7 @@ jobs:
           end = source.find(end_marker, start + 1)
           if start < 0 or end < 0:
               raise SystemExit('legacy collector bridge markers not found')
-          source = source[:start] + source[end:]
-          collector.write_text(source)
+          collector.write_text(source[:start] + source[end:])
           PY
 
           rm -f \
