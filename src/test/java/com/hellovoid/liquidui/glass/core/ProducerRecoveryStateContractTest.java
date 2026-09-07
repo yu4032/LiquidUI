@@ -67,4 +67,46 @@ public final class ProducerRecoveryStateContractTest {
         state.onFreshFrame(second);
         assertTrue(state.isReady(second));
     }
+
+    @Test
+    public void rendererStyleRebindIsSingleFlightAndRequestsBindAfterRecreate() {
+        ProducerRecoveryState state = new ProducerRecoveryState();
+        long first = state.observeProducer();
+        state.onBindSucceeded(first);
+        state.onFreshFrame(first);
+
+        ProducerRecoveryState.Decision firstRequest = state.onRebindRequested();
+        ProducerRecoveryState.Decision duplicate = state.onRebindRequested();
+        assertTrue(firstRequest.accepted());
+        assertTrue(firstRequest.recreateProducer());
+        assertFalse(duplicate.accepted());
+        assertFalse(state.hasFreshFrame());
+
+        long second = state.observeProducer();
+        assertTrue(second > first);
+        ProducerRecoveryState.Decision recreated = state.onProducerRecreated();
+        assertTrue(recreated.requestBind());
+
+        state.onBindSucceeded();
+        state.onFreshFrameConsumed();
+        assertTrue(state.hasFreshFrame());
+        assertTrue(state.isReady(second));
+    }
+
+    @Test
+    public void activationExhaustionFailsClosedUntilNextRebind() {
+        ProducerRecoveryState state = new ProducerRecoveryState();
+        long generation = state.observeProducer();
+        state.onBindSucceeded(generation);
+        state.onFreshFrame(generation);
+        assertTrue(state.hasFreshFrame());
+
+        state.onBindExhausted();
+        assertTrue(state.isActivationExhausted());
+        assertFalse(state.hasFreshFrame());
+        assertFalse(state.isReady(generation));
+
+        assertTrue(state.onRebindRequested().accepted());
+        assertFalse(state.isActivationExhausted());
+    }
 }
