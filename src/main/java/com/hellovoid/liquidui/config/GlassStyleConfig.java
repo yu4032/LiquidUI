@@ -11,9 +11,13 @@ import java.util.Objects;
 public final class GlassStyleConfig {
     public static final class ResolvedStyle {
         private final Map<GlassParameter, Float> values;
+        private final Map<GlassHighlight, Boolean> highlights;
 
-        private ResolvedStyle(Map<GlassParameter, Float> values) {
+        private ResolvedStyle(
+                Map<GlassParameter, Float> values,
+                Map<GlassHighlight, Boolean> highlights) {
             this.values = Collections.unmodifiableMap(new EnumMap<>(values));
+            this.highlights = Collections.unmodifiableMap(new EnumMap<>(highlights));
         }
 
         public float value(GlassParameter parameter) {
@@ -22,7 +26,12 @@ public final class GlassStyleConfig {
             return value;
         }
 
+        public boolean highlight(GlassHighlight highlight) {
+            return Boolean.TRUE.equals(highlights.get(Objects.requireNonNull(highlight, "highlight")));
+        }
+
         public Map<GlassParameter, Float> values() { return values; }
+        public Map<GlassHighlight, Boolean> highlights() { return highlights; }
     }
 
     private final ResolvedStyle global;
@@ -62,10 +71,8 @@ public final class GlassStyleConfig {
     public static GlassStyleConfig read(ConfigReader reader) {
         Objects.requireNonNull(reader, "reader");
         ResolvedStyle global = readStyle(reader, null);
-        Map<GlassMaterialProfile, ResolvedStyle> profiles =
-                new EnumMap<>(GlassMaterialProfile.class);
-        Map<GlassMaterialProfile, Boolean> overrides =
-                new EnumMap<>(GlassMaterialProfile.class);
+        Map<GlassMaterialProfile, ResolvedStyle> profiles = new EnumMap<>(GlassMaterialProfile.class);
+        Map<GlassMaterialProfile, Boolean> overrides = new EnumMap<>(GlassMaterialProfile.class);
         for (GlassMaterialProfile profile : GlassMaterialProfile.values()) {
             overrides.put(profile, reader.get(ConfigSchema.profileOverrideKey(profile)));
             profiles.put(profile, readStyle(reader, profile));
@@ -81,17 +88,23 @@ public final class GlassStyleConfig {
                 reader.get(ConfigSchema.SAMPLING_EXTRA_RIGHT));
     }
 
-    private static ResolvedStyle readStyle(
-            ConfigReader reader, GlassMaterialProfile profile) {
+    private static ResolvedStyle readStyle(ConfigReader reader, GlassMaterialProfile profile) {
         Map<GlassParameter, Float> values = new EnumMap<>(GlassParameter.class);
         for (GlassParameter parameter : GlassParameter.values()) {
             ConfigKey<Integer> key = profile == null
                     ? ConfigSchema.globalGlassKey(parameter)
                     : ConfigSchema.profileGlassKey(profile, parameter);
-            int raw = reader.get(key);
-            values.put(parameter, parameter.normalize(raw));
+            values.put(parameter, parameter.normalize(reader.get(key)));
         }
-        return new ResolvedStyle(values);
+
+        Map<GlassHighlight, Boolean> highlights = new EnumMap<>(GlassHighlight.class);
+        for (GlassHighlight highlight : GlassHighlight.values()) {
+            ConfigKey<Boolean> key = profile == null
+                    ? ConfigSchema.globalHighlightKey(highlight)
+                    : ConfigSchema.profileHighlightKey(profile, highlight);
+            highlights.put(highlight, reader.get(key));
+        }
+        return new ResolvedStyle(values, highlights);
     }
 
     public ResolvedStyle global() { return global; }

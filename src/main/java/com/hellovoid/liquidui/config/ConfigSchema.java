@@ -29,10 +29,14 @@ public final class ConfigSchema {
 
     private static final Map<GlassParameter, ConfigKey<Integer>> GLOBAL_GLASS =
             new EnumMap<>(GlassParameter.class);
+    private static final Map<GlassHighlight, ConfigKey<Boolean>> GLOBAL_HIGHLIGHTS =
+            new EnumMap<>(GlassHighlight.class);
     private static final Map<GlassMaterialProfile, ConfigKey<Boolean>> PROFILE_OVERRIDES =
             new EnumMap<>(GlassMaterialProfile.class);
     private static final Map<GlassMaterialProfile, Map<GlassParameter, ConfigKey<Integer>>>
             PROFILE_GLASS = new EnumMap<>(GlassMaterialProfile.class);
+    private static final Map<GlassMaterialProfile, Map<GlassHighlight, ConfigKey<Boolean>>>
+            PROFILE_HIGHLIGHTS = new EnumMap<>(GlassMaterialProfile.class);
     private static final List<ConfigKey<?>> ALL;
 
     static {
@@ -42,9 +46,14 @@ public final class ConfigSchema {
         all.add(NOTIFICATION_GLASS_ENABLED);
 
         for (GlassParameter parameter : GlassParameter.values()) {
-            ConfigKey<Integer> key = intKey(
-                    "glass_global_" + parameter.suffix(), parameter);
+            ConfigKey<Integer> key = intKey("glass_global_" + parameter.suffix(), parameter);
             GLOBAL_GLASS.put(parameter, key);
+            all.add(key);
+        }
+        for (GlassHighlight highlight : GlassHighlight.values()) {
+            ConfigKey<Boolean> key = new ConfigKey<>(
+                    "glass_global_highlight_" + highlight.suffix(), false);
+            GLOBAL_HIGHLIGHTS.put(highlight, key);
             all.add(key);
         }
 
@@ -60,14 +69,22 @@ public final class ConfigSchema {
             PROFILE_OVERRIDES.put(profile, override);
             all.add(override);
 
-            Map<GlassParameter, ConfigKey<Integer>> values =
-                    new EnumMap<>(GlassParameter.class);
+            Map<GlassParameter, ConfigKey<Integer>> values = new EnumMap<>(GlassParameter.class);
             for (GlassParameter parameter : GlassParameter.values()) {
                 ConfigKey<Integer> key = intKey(prefix + "_" + parameter.suffix(), parameter);
                 values.put(parameter, key);
                 all.add(key);
             }
             PROFILE_GLASS.put(profile, Collections.unmodifiableMap(values));
+
+            Map<GlassHighlight, ConfigKey<Boolean>> highlights = new EnumMap<>(GlassHighlight.class);
+            for (GlassHighlight highlight : GlassHighlight.values()) {
+                ConfigKey<Boolean> key = new ConfigKey<>(
+                        prefix + "_highlight_" + highlight.suffix(), false);
+                highlights.put(highlight, key);
+                all.add(key);
+            }
+            PROFILE_HIGHLIGHTS.put(profile, Collections.unmodifiableMap(highlights));
         }
         ALL = Collections.unmodifiableList(all);
     }
@@ -79,6 +96,12 @@ public final class ConfigSchema {
     public static ConfigKey<Integer> globalGlassKey(GlassParameter parameter) {
         ConfigKey<Integer> key = GLOBAL_GLASS.get(parameter);
         if (key == null) throw new IllegalArgumentException("Unknown glass parameter " + parameter);
+        return key;
+    }
+
+    public static ConfigKey<Boolean> globalHighlightKey(GlassHighlight highlight) {
+        ConfigKey<Boolean> key = GLOBAL_HIGHLIGHTS.get(highlight);
+        if (key == null) throw new IllegalArgumentException("Unknown glass highlight " + highlight);
         return key;
     }
 
@@ -97,15 +120,20 @@ public final class ConfigSchema {
         return key;
     }
 
+    public static ConfigKey<Boolean> profileHighlightKey(
+            GlassMaterialProfile profile, GlassHighlight highlight) {
+        Map<GlassHighlight, ConfigKey<Boolean>> profileKeys = PROFILE_HIGHLIGHTS.get(profile);
+        if (profileKeys == null) throw new IllegalArgumentException("Unknown glass profile " + profile);
+        ConfigKey<Boolean> key = profileKeys.get(highlight);
+        if (key == null) throw new IllegalArgumentException("Unknown glass highlight " + highlight);
+        return key;
+    }
+
     public static boolean isGlassStyleKey(String name) {
         return name != null && name.startsWith("glass_");
     }
 
     private static ConfigKey<Integer> intKey(String name, GlassParameter parameter) {
-        return new ConfigKey<>(
-                name,
-                parameter.defaultRaw(),
-                parameter.minRaw(),
-                parameter.maxRaw());
+        return new ConfigKey<>(name, parameter.defaultRaw(), parameter.minRaw(), parameter.maxRaw());
     }
 }
