@@ -4,6 +4,8 @@ import android.content.SharedPreferences;
 import android.os.Build;
 
 import com.hellovoid.liquidui.config.ConfigReader;
+import com.hellovoid.liquidui.config.GlassConfigRuntime;
+import com.hellovoid.liquidui.config.GlassStyleConfig;
 import com.hellovoid.liquidui.config.LiquidUiConfig;
 import com.hellovoid.liquidui.diagnostics.BootstrapDiagnosticsPolicy;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
@@ -34,6 +36,7 @@ public final class ModuleMain extends XposedModule {
     private final SystemUiRuntimeInfoProvider runtimeInfoProvider =
             new SystemUiRuntimeInfoProvider(FrameworkPackageVersionReader.INSTANCE);
     private SystemUiGlassCore glassCore;
+    private GlassConfigRuntime glassConfigRuntime;
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
@@ -49,9 +52,11 @@ public final class ModuleMain extends XposedModule {
 
         try {
             SharedPreferences preferences = Api101Bridge.remotePreferences("config");
-            ConfigReader configReader = new ConfigReader(preferences::getBoolean);
+            ConfigReader configReader = new ConfigReader(
+                    preferences::getBoolean, preferences::getInt);
             LiquidUiConfig config = LiquidUiConfig.from(configReader);
             if (!config.enabled()) {
+                closeGlassConfigRuntime();
                 Api101Bridge.log(LiquidUiLog.format("bootstrap disabled by configuration"));
                 return;
             }
@@ -76,6 +81,14 @@ public final class ModuleMain extends XposedModule {
                         (key, renderHandler) -> new WindowGlassSession(key, renderHandler));
             }
             SystemUiGlassCore processGlassCore = glassCore;
+            GlassStyleConfig initialStyle = GlassStyleConfig.read(configReader);
+            processGlassCore.updateGlassStyles(initialStyle);
+
+            closeGlassConfigRuntime();
+            glassConfigRuntime = new GlassConfigRuntime(
+                    preferences,
+                    processGlassCore::updateGlassStyles);
+
             SystemUiHookRegistry hookRegistry = new SystemUiHookRegistry(List.of(
                     new NotificationSharedGlassHook(
                             new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()),
@@ -85,6 +98,7 @@ public final class ModuleMain extends XposedModule {
                             config.notificationGlassEnabled())));
             HookRegistryReport report = hookRegistry.installAll(classLoader, resolution.profile());
             if (report.hasFailures()) {
+                closeGlassConfigRuntime();
                 processGlassCore.close();
                 if (glassCore == processGlassCore) glassCore = null;
             }
@@ -92,12 +106,21 @@ public final class ModuleMain extends XposedModule {
                     BootstrapDiagnosticsPolicy.hookRegistryMessage(
                             resolution.profile(), report, config.diagnosticsEnabled())));
         } catch (Throwable error) {
+            closeGlassConfigRuntime();
             SystemUiGlassCore failedCore = glassCore;
             glassCore = null;
             if (failedCore != null) {
                 try { failedCore.close(); } catch (Throwable ignored) {}
             }
             Api101Bridge.log(LiquidUiLog.format("SystemUI bootstrap FAILED"), error);
+        }
+    }
+
+    private void closeGlassConfigRuntime() {
+        GlassConfigRuntime runtime = glassConfigRuntime;
+        glassConfigRuntime = null;
+        if (runtime != null) {
+            try { runtime.close(); } catch (Throwable ignored) {}
         }
     }
 }
