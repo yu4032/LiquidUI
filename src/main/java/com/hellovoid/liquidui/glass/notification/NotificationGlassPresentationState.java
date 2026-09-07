@@ -4,8 +4,10 @@ package com.hellovoid.liquidui.glass.notification;
  * Pure presentation-authority state shared between the UI/session and EGL renderer.
  *
  * A framework PassBlur bind is not presentation success. Glass becomes authoritative only after
- * the current source generation produced a fresh frame, the current scene has drawable nodes, and
- * an optical frame for both generations completed eglSwapBuffers().
+ * the current source generation produced a fresh frame, there are current drawable nodes, and an
+ * optical frame for that source completed eglSwapBuffers(). Scene generations are monotonic UI
+ * geometry snapshots: a successfully swapped older snapshot from the same fresh source may still
+ * establish initial authority while the UI publishes a newer snapshot before the callback lands.
  */
 final class NotificationGlassPresentationState {
     enum Phase {
@@ -55,7 +57,8 @@ final class NotificationGlassPresentationState {
     synchronized ActivationToken swapSucceeded(long source, long scene, long swap) {
         if ((phase != Phase.SOURCE_FRESH && phase != Phase.GLASS_ACTIVE)
                 || source != sourceGeneration
-                || scene != sceneGeneration
+                || scene < 0L
+                || scene > sceneGeneration
                 || !fresh
                 || drawableNodes <= 0
                 || swap <= 0L) {
@@ -70,8 +73,11 @@ final class NotificationGlassPresentationState {
         return token != null
                 && phase == Phase.GLASS_ACTIVE
                 && token.sourceGeneration() == sourceGeneration
-                && token.sceneGeneration() == sceneGeneration
-                && token.swapSequence() == swapSequence;
+                && token.sceneGeneration() >= 0L
+                && token.sceneGeneration() <= sceneGeneration
+                && token.swapSequence() == swapSequence
+                && drawableNodes > 0
+                && fresh;
     }
 
     synchronized void sourceLost(long generation) {
