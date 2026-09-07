@@ -17,10 +17,17 @@ public final class DisplayTransformEngine {
         float[] hostToWindow = affine(
                 windowW, 0f, windowX,
                 0f, windowH, windowY);
-        float[] oriented = orientation(snapshot.configRotation());
+
+        // ViewRoot's configRotation is the buffer transform hint: it describes how SurfaceFlinger
+        // rotates the producer buffer to present it in the Window. This engine maps in the reverse
+        // direction (Window UV -> producer/OES UV), so applying the hint forward double-signs the
+        // two landscape orientations. Invert the quarter-turn here, then let SurfaceTexture's
+        // authoritative matrix apply its own crop/flip transform last.
+        int inverseBufferRotation = (4 - snapshot.configRotation()) & 3;
+        float[] windowToBuffer = orientation(inverseBufferRotation);
         float[] finalMatrix = multiply(
                 snapshot.surfaceTextureMatrix(),
-                multiply(oriented, hostToWindow));
+                multiply(windowToBuffer, hostToWindow));
         return new DisplayTransform(
                 finalMatrix,
                 snapshot.rootGeneration(),
