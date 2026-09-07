@@ -21,4 +21,16 @@ public final class PassBlurShadersArchitectureTest {
         assertFalse(source.contains("pixelOffset"));
         assertFalse(source.contains("Notification"));
     }
+
+    @Test
+    public void finalCompositeOnlyCropsPreparedTwoDimensionalBackdrop() throws Exception {
+        String source = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/core/PassBlurShaders.java"));
+
+        assertTrue(source.contains("COMPOSITE_FRAGMENT"));
+        assertTrue(source.contains("uniform sampler2D uTexture"));
+        assertTrue(source.contains("uniform vec4 uCropRect"));
+        assertTrue(source.contains("uCropRect.xy + vUv * uCropRect.zw"));
+        assertFalse(source.contains("samplerExternalOES uComposite"));
+    }
 }
