@@ -7,6 +7,12 @@ import com.hellovoid.prismal.PrismalRenderer;
 
 /** Batches every visible notification over one prepared PassBlur backdrop. */
 final class NotificationGlassCompositor {
+    // First production validation deliberately disables every decorative highlight. Any visible
+    // edge motion/RGB separation must therefore come from Prismal's optical displacement path.
+    private static final PrismalHighlightProfile REFRACTION_ONLY =
+            new PrismalHighlightProfile(
+                    false, false, false, false, false, false, false, false, false);
+
     private final NotificationGlassSceneState sceneState;
 
     NotificationGlassCompositor(NotificationGlassSceneState sceneState) {
@@ -40,7 +46,7 @@ final class NotificationGlassCompositor {
                     node.topRightRadius,
                     node.bottomRightRadius,
                     node.bottomLeftRadius);
-            renderer.drawGlass(geometry, params, PrismalHighlightProfile.ALL_ENABLED, node.opacity);
+            renderer.drawGlass(geometry, params, REFRACTION_ONLY, node.opacity);
         }
     }
 }
