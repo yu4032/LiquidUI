@@ -38,7 +38,10 @@ final class NotificationGlassMaterial {
         b.transmittance = 1f;
         b.backdropScaleX = 1f;
         b.backdropScaleY = 1f;
-        b.parallaxScale = 1f;
+        // Offset isolation: retain the strong lens displacement and RGB dispersion, but remove
+        // Prismal's extra gradient parallax. If the apparent whole-backdrop shift disappears on
+        // device, the remaining OES/PassBlur mapping is aligned and parallax was the bias source.
+        b.parallaxScale = 0f;
         // HyperOS already supplies the quarter-scale PassBlur backdrop. The shared optical layer
         // adds refraction/dispersion only; the native 2dp material remains underneath as fallback.
         b.blurRadiusPx = 0f;
