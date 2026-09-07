@@ -529,7 +529,7 @@ private fun parameterTitle(parameter: GlassParameter): String = when (parameter)
 }
 
 private fun parameterSummary(parameter: GlassParameter): String = when (parameter.category()) {
-    GlassParameter.Category.BASIC -> "LiquidDock 同源 Prismal 基础材质参数"
+    GlassParameter.Category.BASIC -> "Prismal 基础材质参数"
     GlassParameter.Category.REFRACTION -> "控制折射位移、边缘衰减、色散和视差"
     GlassParameter.Category.COLOR -> "控制背景颜色、亮度、鲜艳度与透射"
     GlassParameter.Category.LIGHTING -> "控制高光、光向、镜面、边缘光和内阴影"
