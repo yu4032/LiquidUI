@@ -1,16 +1,10 @@
 package com.hellovoid.liquidui.glass.core;
 
 import com.hellovoid.prismal.PrismalGeometry;
-import com.hellovoid.prismal.PrismalHighlightProfile;
-import com.hellovoid.prismal.PrismalParams;
 import com.hellovoid.prismal.PrismalRenderer;
 
 /** Batches every visible component in one Window over one prepared PassBlur backdrop. */
 final class GlassCompositor {
-    private static final PrismalHighlightProfile REFRACTION_ONLY =
-            new PrismalHighlightProfile(
-                    false, false, false, false, false, false, false, false, false);
-
     private final GlassSceneState sceneState;
     private final MaterialProfileRegistry materialProfiles;
 
@@ -35,7 +29,8 @@ final class GlassCompositor {
         if (scene == null) return;
         for (GlassNode node : scene.nodes()) {
             if (node == null || !node.drawable()) continue;
-            PrismalParams params = materialProfiles.paramsFor(node.materialProfile());
+            MaterialProfileRegistry.MaterialState state =
+                    materialProfiles.stateFor(node.materialProfile());
             float centerX = insetLeft + node.left() + node.width() * 0.5f;
             float centerY = insetTop + node.top() + node.height() * 0.5f;
             PrismalGeometry geometry = new PrismalGeometry(
@@ -49,7 +44,11 @@ final class GlassCompositor {
                     node.topRightRadius(),
                     node.bottomRightRadius(),
                     node.bottomLeftRadius());
-            renderer.drawGlass(geometry, params, REFRACTION_ONLY, node.opacity());
+            renderer.drawGlass(
+                    geometry,
+                    state.params(),
+                    state.highlights(),
+                    node.opacity());
         }
     }
 }
