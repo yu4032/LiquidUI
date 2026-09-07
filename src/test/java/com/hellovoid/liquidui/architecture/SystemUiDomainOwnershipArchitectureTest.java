@@ -1,7 +1,5 @@
 package com.hellovoid.liquidui.architecture;
 
-import static org.junit.Assert.assertFalse;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -39,7 +37,9 @@ public final class SystemUiDomainOwnershipArchitectureTest {
     private static void assertNoForbiddenOwnership(Path file) throws IOException {
         String source = Files.readString(file);
         for (String token : FORBIDDEN) {
-            assertFalse(file + " must not own " + token, source.contains(token));
+            if (source.contains(token)) {
+                throw new AssertionError(file + " must not own " + token);
+            }
         }
     }
 }
