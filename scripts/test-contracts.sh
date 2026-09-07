@@ -16,6 +16,7 @@ package org.junit;
 public class Assert {
     public static void assertEquals(Object expected, Object actual) { if (expected == null ? actual != null : !expected.equals(actual)) throw new AssertionError("expected="+expected+" actual="+actual); }
     public static void assertEquals(long expected, long actual) { if (expected != actual) throw new AssertionError("expected="+expected+" actual="+actual); }
+    public static void assertEquals(float expected, float actual, float delta) { if (Math.abs(expected-actual) > delta) throw new AssertionError("expected="+expected+" actual="+actual); }
     public static void assertTrue(boolean value) { if (!value) throw new AssertionError("expected true"); }
     public static void assertFalse(boolean value) { if (value) throw new AssertionError("expected false"); }
     public static void assertNull(Object value) { if (value != null) throw new AssertionError("expected null but was "+value); }
