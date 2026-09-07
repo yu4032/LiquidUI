@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.WeakHashMap;
 
-/** Dormant legacy OES/Prismal session retained but disconnected from the active notification hook. */
+/** One shared OES/Prismal session for one NotificationStackScrollLayout. */
 final class NotificationGlassSession implements NotificationPassBlurTextureView.ActivationListener {
     private static final String TAG = "[NotifGlass][Session]";
 
@@ -29,6 +29,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
     private final WeakHashMap<Object, Boolean> wrappers = new WeakHashMap<>();
     private final NotificationGlassHostView host;
     private final NotificationPassBlurTextureView renderer;
+    private final NotificationViewRootSurfaceObserver rootSurfaceObserver;
 
     private ViewTreeObserver observer;
     private ViewTreeObserver.OnPreDrawListener preDrawListener;
@@ -64,15 +65,35 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
 
         renderer = new NotificationPassBlurTextureView(
                 parent.getContext(), stack, sceneState, this, authorityState.isEnabled());
-        renderer.setVisibility(View.INVISIBLE);
+        // Keep the TextureView VISIBLE so Android creates and retains its output SurfaceTexture.
+        // Presentation is gated by alpha; a stale frame therefore cannot remain visible while the
+        // input producer generation is lost.
+        renderer.setVisibility(View.VISIBLE);
+        renderer.setAlpha(0f);
         host.addView(renderer, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
+
+        rootSurfaceObserver = new NotificationViewRootSurfaceObserver(
+                stack,
+                new NotificationViewRootSurfaceObserver.Listener() {
+                    @Override public void onSurfaceDestroyed() {
+                        revokeSharedPresentation("root-surface-destroyed");
+                    }
+
+                    @Override public void onSurfaceReady(String event) {
+                        if (shutdown) return;
+                        renderer.rebindProducer("root-" + event);
+                    }
+                });
+        rootSurfaceObserver.attach();
+
         authorityState.addListener(authorityListener);
         installPreDraw(stack);
         log("created stack=" + stack.getClass().getName()
                 + " parent=" + parent.getClass().getName()
-                + " hostIndex=" + stackIndex);
+                + " hostIndex=" + stackIndex
+                + " sharedRenderer=true");
     }
 
     boolean isShutdown() { return shutdown; }
@@ -83,7 +104,10 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
     void registerRow(Object row) {
         if (shutdown || row == null) return;
         rows.put(row, Boolean.TRUE);
-        if (active) setShadeBlurSuppression(true);
+        if (active) {
+            setShadeBlurSuppression(true);
+            materialController.suppressRow(row);
+        }
         if (updatesPausedForNoRows) {
             updatesPausedForNoRows = false;
             renderer.setProducerUpdatesEnabled(true, "row-attached");
@@ -96,7 +120,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         rows.remove(row);
         materialController.restoreRow(row);
         if (rows.isEmpty() && !shutdown) {
-            setShadeBlurSuppression(false);
+            revokeSharedPresentation("no-visible-rows");
             sceneState.clear();
             lastNodes = List.of();
             renderer.requestSceneRefresh();
@@ -122,32 +146,29 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
     }
 
     @Override public void onFirstFrameActive() {
-        if (shutdown || active || !authorityState.isEnabled()) return;
+        if (shutdown || active || !authorityState.isEnabled() || lastNodes.isEmpty()) return;
         active = true;
-        renderer.setVisibility(View.VISIBLE);
-        setShadeBlurSuppression(!rows.isEmpty());
-        log("first GPU frame active nodes=" + lastNodes.size());
+        renderer.setAlpha(1f);
+        setShadeBlurSuppression(true);
         suppressVendorMaterial();
+        log("shared GPU glass active nodes=" + lastNodes.size());
         refreshScene();
     }
 
     @Override public void onTerminalFailure(String stage, Throwable error) {
         if (shutdown) return;
         log("terminal failure stage=" + stage + " error=" + error);
-        active = false;
-        setShadeBlurSuppression(false);
-        materialController.restoreAll();
+        revokeSharedPresentation("renderer-failure-" + stage);
         shutdown("renderer-failure-" + stage);
     }
 
     void shutdown(String reason) {
         if (shutdown) return;
         shutdown = true;
-        active = false;
-        setShadeBlurSuppression(false);
+        revokeSharedPresentation("shutdown-" + reason);
         authorityState.removeListener(authorityListener);
+        rootSurfaceObserver.detach();
         removePreDraw();
-        materialController.restoreAll();
         sceneState.clear();
         rows.clear();
         wrappers.clear();
@@ -164,10 +185,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         if (shutdown) return;
         log("HyperOS notifPassBlur=" + enabled);
         if (!enabled) {
-            active = false;
-            renderer.setVisibility(View.INVISIBLE);
-            setShadeBlurSuppression(false);
-            materialController.restoreAll();
+            revokeSharedPresentation("hyperos-notifPassBlur-off");
             renderer.setVendorPassBlurEnabled(false, "hyperos-notifPassBlur");
             return;
         }
@@ -175,10 +193,21 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         refreshScene();
     }
 
+    private void revokeSharedPresentation(String reason) {
+        if (shutdown && !active) return;
+        boolean wasActive = active;
+        active = false;
+        renderer.setAlpha(0f);
+        setShadeBlurSuppression(false);
+        materialController.restoreAll();
+        if (wasActive) log("shared GPU glass revoked reason=" + reason + " fallback=2dp-native");
+    }
+
     private void installPreDraw(View stack) {
         ViewTreeObserver value = stack.getViewTreeObserver();
         if (value == null || !value.isAlive()) return;
         preDrawListener = () -> {
+            rootSurfaceObserver.attach();
             refreshScene();
             return true;
         };
