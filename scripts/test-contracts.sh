@@ -115,6 +115,15 @@ while IFS= read -r f; do
     PURE_MAIN+=("$f")
   fi
 done < <(find "$ROOT/src/main/java/com/hellovoid/liquidui/glass/core" -name '*.java' -print | sort)
+# SystemUI-wide semantic/state contracts are also kept Android-free. Android-backed host
+# controllers and domain hooks are compiled only by Gradle and are excluded by the import filter.
+if [[ -d "$ROOT/src/main/java/com/hellovoid/liquidui/glass/systemui" ]]; then
+  while IFS= read -r f; do
+    if ! grep -qE '^import android\.' "$f"; then
+      PURE_MAIN+=("$f")
+    fi
+  done < <(find "$ROOT/src/main/java/com/hellovoid/liquidui/glass/systemui" -name '*.java' -print | sort)
+fi
 PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/core/SystemUiGlassCore.java")
 # These core classes are Android-free even though they consume pure Prismal DTOs.
 PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/core/GlassPrismalAdapter.java")
