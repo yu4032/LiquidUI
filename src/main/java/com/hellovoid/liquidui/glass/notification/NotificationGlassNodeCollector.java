@@ -3,18 +3,18 @@ package com.hellovoid.liquidui.glass.notification;
 import android.view.View;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 
 /** Geometry adapter retained for future Prismal pass-texture integration. */
 final class NotificationGlassNodeCollector {
+    private static final String NATIVE_CARD_RADIUS_NAME = "notification_item_bg_radius";
+    private static final float NATIVE_CARD_RADIUS_FALLBACK_DP = 24f;
+
     private final Class<?> rowClass;
     private final Field backgroundNormalField;
     private final Field actualWidthField;
     private final Field actualHeightField;
     private final Field clipTopField;
     private final Field clipBottomField;
-    private final Method topCornerRadius;
-    private final Method bottomCornerRadius;
     private final Field expandRunningField;
     private final Field expandWidthField;
     private final Field expandHeightField;
@@ -27,8 +27,6 @@ final class NotificationGlassNodeCollector {
             Field actualHeightField,
             Field clipTopField,
             Field clipBottomField,
-            Method topCornerRadius,
-            Method bottomCornerRadius,
             Field expandRunningField,
             Field expandWidthField,
             Field expandHeightField,
@@ -39,8 +37,6 @@ final class NotificationGlassNodeCollector {
         this.actualHeightField = accessible(actualHeightField);
         this.clipTopField = accessible(clipTopField);
         this.clipBottomField = accessible(clipBottomField);
-        this.topCornerRadius = accessible(topCornerRadius);
-        this.bottomCornerRadius = accessible(bottomCornerRadius);
         this.expandRunningField = accessible(expandRunningField);
         this.expandWidthField = accessible(expandWidthField);
         this.expandHeightField = accessible(expandHeightField);
@@ -91,25 +87,39 @@ final class NotificationGlassNodeCollector {
             float left = bgScreen[0] - hostScreen[0] + leftOffset;
             float top = bgScreen[1] - hostScreen[1];
 
-            // Per-edge corner magnitudes remain row authority. The two setRoundRect booleans do
-            // NOT represent top/bottom rounded state in this SystemUI build.
-            float topRadius = number(topCornerRadius.invoke(rowObject));
-            float bottomRadius = number(bottomCornerRadius.invoke(rowObject));
+            // Match NotificationUtil#setRoundRect's stable native card silhouette instead of
+            // ExpandableNotificationRow#getTop/BottomCornerRadius. Those accessors multiply the
+            // base radius by transient row roundness, which collapses the shared GPU glass radius
+            // at rest and only grows again while the row is being dragged.
+            float radius = nativeCardRadiusPx(background);
+            radius = Math.min(radius, Math.min(actualWidth, visibleHeight) * 0.5f);
             float opacity = row.getAlpha();
             return new NotificationGlassNode(
                     left, top, actualWidth, visibleHeight,
-                    topRadius, topRadius, bottomRadius, bottomRadius, opacity);
+                    radius, radius, radius, radius, opacity);
         } catch (Throwable ignored) {
             return null;
         }
     }
 
-    private static int positiveOr(int value, int fallback) {
-        return value > -1 ? value : fallback;
+    private static float nativeCardRadiusPx(View background) {
+        int id = background.getResources().getIdentifier(
+                NATIVE_CARD_RADIUS_NAME, "dimen", "com.android.systemui");
+        if (id != 0) {
+            try {
+                return Math.max(0f, background.getResources().getDimension(id));
+            } catch (Throwable ignored) {
+                // Exact target build is pinned by the SystemUI profile; keep its verified 24dp
+                // value as the fail-safe rather than falling back to transient row roundness.
+            }
+        }
+        float density = Math.max(0.1f,
+                background.getResources().getDisplayMetrics().density);
+        return NATIVE_CARD_RADIUS_FALLBACK_DP * density;
     }
 
-    private static float number(Object value) {
-        return value instanceof Number ? Math.max(0f, ((Number) value).floatValue()) : 0f;
+    private static int positiveOr(int value, int fallback) {
+        return value > -1 ? value : fallback;
     }
 
     private static <T extends java.lang.reflect.AccessibleObject> T accessible(T value) {
