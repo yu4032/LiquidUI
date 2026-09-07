@@ -6,31 +6,35 @@ import android.view.ViewParent;
 
 import com.hellovoid.liquidui.Api101Bridge;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
+import com.hellovoid.liquidui.glass.core.SystemUiGlassCore;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.WeakHashMap;
 
-/** Dormant legacy UI-thread runtime retained for a future Prismal pass-texture integration. */
+/** UI-thread routing from notification hooks into Window-scoped glass adapters. */
 final class NotificationGlassRuntime {
     private static final String TAG = "[NotifGlass][Runtime]";
 
+    private final SystemUiGlassCore glassCore;
     private final Class<?> stackClass;
     private final NotificationGlassNodeCollector collector;
     private final LegacyNotificationVendorMaterialController materialControllerPrototype;
     private final NotificationGlassActivityState activityState;
     private final NotificationPassBlurAuthorityState authorityState;
-    private final WeakHashMap<View, NotificationGlassSession> sessions = new WeakHashMap<>();
-    private final WeakHashMap<Object, NotificationGlassSession> rowOwners = new WeakHashMap<>();
+    private final WeakHashMap<View, NotificationGlassAdapter> adapters = new WeakHashMap<>();
+    private final WeakHashMap<Object, NotificationGlassAdapter> rowOwners = new WeakHashMap<>();
     private final WeakHashMap<Object, List<WeakReference<Object>>> pendingWrappers = new WeakHashMap<>();
 
     NotificationGlassRuntime(
+            SystemUiGlassCore glassCore,
             Class<?> stackClass,
             NotificationGlassNodeCollector collector,
             LegacyNotificationVendorMaterialController materialController,
             NotificationGlassActivityState activityState,
             NotificationPassBlurAuthorityState authorityState) {
+        this.glassCore = glassCore;
         this.stackClass = stackClass;
         this.collector = collector;
         this.materialControllerPrototype = materialController;
@@ -45,36 +49,41 @@ final class NotificationGlassRuntime {
             log("row attach ignored: NSSL parent unavailable");
             return;
         }
-        NotificationGlassSession session = sessions.get(stack);
-        if (session == null || session.isShutdown()) {
-            session = new NotificationGlassSession(
-                    stack, parent, collector, materialControllerPrototype.fork(),
-                    activityState, authorityState);
-            sessions.put(stack, session);
+        NotificationGlassAdapter adapter = adapters.get(stack);
+        if (adapter == null || adapter.isShutdown()) {
+            adapter = new NotificationGlassAdapter(
+                    glassCore,
+                    stack,
+                    parent,
+                    collector,
+                    materialControllerPrototype.fork(),
+                    activityState,
+                    authorityState);
+            adapters.put(stack, adapter);
         }
-        rowOwners.put(rowObject, session);
-        session.registerRow(rowObject);
+        rowOwners.put(rowObject, adapter);
+        adapter.registerRow(rowObject);
         List<WeakReference<Object>> pending = pendingWrappers.remove(rowObject);
         if (pending != null) {
             for (WeakReference<Object> ref : pending) {
                 Object wrapper = ref.get();
-                if (wrapper != null) session.registerWrapper(wrapper);
+                if (wrapper != null) adapter.registerWrapper(wrapper);
             }
         }
     }
 
     void onRowDetached(Object rowObject) {
-        NotificationGlassSession session = rowOwners.remove(rowObject);
-        if (session != null) session.unregisterRow(rowObject);
+        NotificationGlassAdapter adapter = rowOwners.remove(rowObject);
+        if (adapter != null) adapter.unregisterRow(rowObject);
     }
 
     void onWrapperObserved(Object wrapper) {
         if (wrapper == null) return;
         Object row = materialControllerPrototype.wrapperRow(wrapper);
         if (row == null) return;
-        NotificationGlassSession session = rowOwners.get(row);
-        if (session != null && !session.isShutdown()) {
-            session.registerWrapper(wrapper);
+        NotificationGlassAdapter adapter = rowOwners.get(row);
+        if (adapter != null && !adapter.isShutdown()) {
+            adapter.registerWrapper(wrapper);
             return;
         }
         pendingWrappers.computeIfAbsent(row, ignored -> new ArrayList<>())
