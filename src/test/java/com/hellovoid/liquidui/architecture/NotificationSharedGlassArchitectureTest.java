@@ -88,7 +88,7 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
-    public void gpuProbeRecoversFromViewRootSurfaceRolloverWithoutUsingCallbackTransaction() throws Exception {
+    public void gpuProbeRecreatesProducerAfterPassBlurRootDestruct() throws Exception {
         String probe = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGpuPassBlurStreamProbe.java");
         String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
 
@@ -97,12 +97,21 @@ public class NotificationSharedGlassArchitectureTest {
         assertTrue(probe.contains("surfaceCreated"));
         assertTrue(probe.contains("surfaceReplaced"));
         assertTrue(probe.contains("surfaceDestroyed"));
-        assertTrue(probe.contains("scheduleSurfaceRolloverRebind"));
-        assertTrue(probe.contains("producerPreserved=true"));
 
-        // Native crash regression: never call Xiaomi SetPassBlurSurface from ViewRoot's own
-        // surface-created/replaced transaction. The callback is only an authority signal; rebind
-        // happens afterward using SystemUiPassBlurBridge's independent Transaction.
+        // Runtime evidence: SurfaceFlinger disconnects the old PassBlur producer when the root is
+        // destructed. Rebinding that same producer crashes in native setPassBlurSurface and is
+        // followed by dequeueBuffer -32. Root teardown therefore retires the old GPU producer and
+        // creates a fresh SurfaceTexture/Surface for the replacement root.
+        assertTrue(probe.contains("retireGpuProducerForRootRollover"));
+        assertTrue(probe.contains("recreateGpuProducerForRootRollover"));
+        assertTrue(probe.contains("producerPreserved=false"));
+        assertTrue(probe.contains("producerSurface = null"));
+        assertTrue(probe.contains("surfaceTexture = null"));
+        assertTrue(probe.contains("surface.release()"));
+        assertTrue(probe.contains("texture.release()"));
+        assertFalse(probe.contains("producerPreserved=true"));
+
+        // Never call Xiaomi SetPassBlurSurface from ViewRoot's callback transaction.
         assertFalse(probe.contains("args[0] instanceof SurfaceControl.Transaction"));
         assertFalse(probe.contains("SurfaceControl.Transaction transaction"));
         assertFalse(bridge.contains("bindInTransaction"));
