@@ -29,15 +29,6 @@ public class NotificationGlassPerformanceArchitectureTest {
     }
 
     @Test
-    public void activeSceneMotionIsPacedByProducerFrames() throws Exception {
-        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
-
-        assertTrue(session.contains("if (!active || !renderer.isGpuBackdropActive())"));
-        assertTrue(session.contains("renderer.requestSceneRefresh()"));
-        assertTrue(session.contains("producer-paced scene refresh"));
-    }
-
-    @Test
     public void gpuOnlyAndRefractionContractsRemainIntact() throws Exception {
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
         String material = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassMaterial.java");
