@@ -96,6 +96,23 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
+    public void rejectedActivationRearmsRendererForCurrentScene() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+
+        assertTrue(renderer.contains("void requestActivationRetry()"));
+        int start = renderer.indexOf("void requestActivationRetry()");
+        int end = renderer.indexOf("void requestSceneRefresh()", start);
+        assertTrue(start >= 0 && end > start);
+        String retry = renderer.substring(start, end);
+        assertTrue(retry.contains("firstDrawLogged = false"));
+        assertTrue(retry.contains("drawLatestFrame(false)"));
+        assertTrue(session.contains("renderer.requestActivationRetry()"));
+        assertTrue(session.indexOf("renderer.requestActivationRetry()")
+                > session.indexOf("late/stale GPU activation rejected"));
+    }
+
+    @Test
     public void producerPauseResumeRequiresANewFreshFrameBeforeReactivation() throws Exception {
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
         int start = renderer.indexOf("void setProducerUpdatesEnabled");
