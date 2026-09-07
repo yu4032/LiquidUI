@@ -1,5 +1,6 @@
 package com.hellovoid.liquidui.glass.notification;
 
+import com.hellovoid.liquidui.config.GlassParameter;
 import org.junit.Test;
 
 import java.nio.file.Files;
@@ -38,7 +39,8 @@ public class NotificationOesMappingContractTest {
         assertFalse(shader.contains("MAPPING_PROBE_ENABLED = true"));
         assertFalse(shader.contains("panelUv"));
         assertFalse(material.contains("MAPPING_PROBE_IDENTITY"));
-        assertTrue(material.contains("b.displacementScale = 1.70f;"));
-        assertTrue(material.contains("b.chromaticAberration = 42f;"));
+        assertTrue(material.contains("GlassPrismalAdapter.toPrismal"));
+        assertEquals(170L, GlassParameter.DISPLACEMENT_SCALE.defaultRaw());
+        assertEquals(42L, GlassParameter.CHROMATIC.defaultRaw());
     }
 }

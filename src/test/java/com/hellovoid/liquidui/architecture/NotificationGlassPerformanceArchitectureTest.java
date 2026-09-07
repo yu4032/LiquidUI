@@ -1,5 +1,6 @@
 package com.hellovoid.liquidui.architecture;
 
+import com.hellovoid.liquidui.config.GlassParameter;
 import org.junit.Test;
 
 import java.nio.file.Files;
@@ -18,7 +19,8 @@ public class NotificationGlassPerformanceArchitectureTest {
         String tuner = read("src/main/java/com/hellovoid/liquidui/glass/core/PrismalPerformanceTuner.java");
         String compositor = read("src/main/java/com/hellovoid/liquidui/glass/core/GlassCompositor.java");
 
-        assertTrue(material.contains("b.blurRadiusPx = 0f"));
+        assertEquals(0L, GlassParameter.BLUR.defaultRaw());
+        assertTrue(material.contains("GlassPrismalAdapter.toPrismal"));
         assertTrue(tuner.contains("FAST_COPY_FRAGMENT"));
         assertTrue(tuner.contains("renderer.createProgram"));
         assertTrue(tuner.contains("renderer.blurHProgram = fastH"));
@@ -36,8 +38,9 @@ public class NotificationGlassPerformanceArchitectureTest {
         assertTrue(renderer.contains("GL_TEXTURE_EXTERNAL_OES"));
         assertTrue(renderer.contains("updateTexImage"));
         assertFalse(renderer.contains("glReadPixels"));
-        assertTrue(material.contains("b.displacementScale = 1.70f"));
-        assertTrue(material.contains("b.lensRefractionScale = 2.20f"));
-        assertTrue(material.contains("b.chromaticAberration = 42f"));
+        assertTrue(material.contains("GlassPrismalAdapter.toPrismal"));
+        assertEquals(170L, GlassParameter.DISPLACEMENT_SCALE.defaultRaw());
+        assertEquals(220L, GlassParameter.LENS_REFRACTION.defaultRaw());
+        assertEquals(42L, GlassParameter.CHROMATIC.defaultRaw());
     }
 }

@@ -1,5 +1,6 @@
 package com.hellovoid.liquidui.architecture;
 
+import com.hellovoid.liquidui.config.GlassParameter;
 import org.junit.Test;
 
 import java.nio.file.Files;
@@ -27,10 +28,11 @@ public class NotificationGlassVisualCorrectnessArchitectureTest {
         String material = read(
                 "src/main/java/com/hellovoid/liquidui/glass/core/MaterialProfileRegistry.java");
 
-        assertTrue(material.contains("b.parallaxScale = 0f"));
-        assertTrue(material.contains("b.displacementScale = 1.70f"));
-        assertTrue(material.contains("b.lensRefractionScale = 2.20f"));
-        assertTrue(material.contains("b.chromaticAberration = 42f"));
+        assertTrue(material.contains("GlassPrismalAdapter.toPrismal"));
+        assertEquals(0L, GlassParameter.PARALLAX_SCALE.defaultRaw());
+        assertEquals(170L, GlassParameter.DISPLACEMENT_SCALE.defaultRaw());
+        assertEquals(220L, GlassParameter.LENS_REFRACTION.defaultRaw());
+        assertEquals(42L, GlassParameter.CHROMATIC.defaultRaw());
     }
 
     @Test
