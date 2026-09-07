@@ -1,0 +1,119 @@
+--- a/src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java
++++ b/src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java
+@@ -44,6 +44,8 @@
+             "com.android.systemui.shade.NotificationShadeWindowView";
+     private static final String NOTIFICATION_PANEL =
+             "com.android.systemui.shade.NotificationPanelView";
++    private static final String SHADE_BACKGROUND_VIEW =
++            "com.miui.systemui.shade.ShadeBackgroundView";
+     private static final String BLUR_UTILS = "com.android.systemui.statusbar.BlurUtils";
+     private static final String VIEW_ROOT_IMPL = "android.view.ViewRootImpl";
+     private static final String FRAMEWORK_VIEW = "android.view.View";
+@@ -99,6 +101,7 @@
+         final Method displayAreaAppeared;
+         final Method displayAreaVanished;
+         final Method shadeWindowApply;
++        final Method stackBlurRadius;
+         final Field displayAreaDisplayId;
+         final Field shadeWindowKeyguardShowing;
+         final Field blurProviderView;
+@@ -106,6 +109,7 @@
+         final Field blendBackgroundView;
+         final Class<?> shadeWindowClass;
+         final Class<?> notificationPanelClass;
++        final Class<?> shadeBackgroundClass;
+         try {
+             Class<?> rowClass = TargetClassResolver.require(classLoader, ROW);
+             Class<?> activatableClass = TargetClassResolver.require(classLoader, ACTIVATABLE);
+@@ -120,6 +124,7 @@
+             Class<?> blendBackgroundClass = TargetClassResolver.require(classLoader, SHADE_BLEND_BACKGROUND);
+             shadeWindowClass = TargetClassResolver.require(classLoader, SHADE_WINDOW);
+             notificationPanelClass = TargetClassResolver.require(classLoader, NOTIFICATION_PANEL);
++            shadeBackgroundClass = TargetClassResolver.require(classLoader, SHADE_BACKGROUND_VIEW);
+             Class<?> blurUtilsClass = TargetClassResolver.require(classLoader, BLUR_UTILS);
+             Class<?> viewRootImplClass = TargetClassResolver.require(classLoader, VIEW_ROOT_IMPL);
+             Class<?> frameworkViewClass = TargetClassResolver.require(classLoader, FRAMEWORK_VIEW);
+@@ -177,6 +182,7 @@
+             displayAreaDisplayId = accessible(displayAreaInfoClass.getDeclaredField("displayId"));
+             shadeWindowApply = accessible(shadeWindowControllerImplClass.getDeclaredMethod(
+                     "apply", shadeWindowStateClass));
++            stackBlurRadius = accessible(stackClass.getDeclaredMethod("setBlurRadius", float.class));
+             shadeWindowKeyguardShowing = accessible(
+                     shadeWindowStateClass.getDeclaredField("keyguardShowing"));
+ 
+@@ -260,13 +266,15 @@
+                     ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
+                     (thisObject, args) -> {
+                         Object target = blurProviderView.get(thisObject);
+-                        if (notificationPanelClass.isInstance(target)) {
++                        if (notificationPanelClass.isInstance(target)
++                                || shadeBackgroundClass.isInstance(target)) {
+                             authorityState.observe(blurProviderPassBlur.getBoolean(thisObject));
+                         }
+                         if (!activityState.isActive() || args.length == 0 || !(args[0] instanceof Float ratio)) {
+                             return;
+                         }
+-                        if (!isShadeBlurTarget(target, shadeWindowClass, notificationPanelClass)) return;
++                        if (!isShadeBlurTarget(
++                                target, shadeWindowClass, notificationPanelClass, shadeBackgroundClass)) return;
+                         args[0] = NotificationShadeBlurPolicy.blurRatio(true, ratio);
+                         setMiBackgroundBlurMode.invoke(target, 0);
+                     })::unhook);
+@@ -278,7 +286,8 @@
+                             return;
+                         }
+                         Object target = blendBackgroundView.get(thisObject);
+-                        if (!isShadeBlendTarget(target, shadeWindowClass, notificationPanelClass)) return;
++                        if (!isShadeBlendTarget(
++                                target, shadeWindowClass, notificationPanelClass, shadeBackgroundClass)) return;
+                         args[0] = NotificationShadeBlurPolicy.enabled(true, requested);
+                     })::unhook);
+             rollbacks.add(argumentBackend.intercept(
+@@ -286,7 +295,8 @@
+                     ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
+                     (thisObject, args) -> {
+                         if (args.length == 0 || !(args[0] instanceof Boolean requested)) return;
+-                        if (!notificationPanelClass.isInstance(thisObject)) return;
++                        if (!notificationPanelClass.isInstance(thisObject)
++                                && !shadeBackgroundClass.isInstance(thisObject)) return;
+                         authorityState.observe(requested);
+                     })::unhook);
+             rollbacks.add(argumentBackend.intercept(
+@@ -300,6 +310,16 @@
+                         if (!shadeWindowClass.isInstance(rootView)) return;
+                         args[1] = NotificationShadeBlurPolicy.blurRadius(true, radius);
+                     })::unhook);
++            rollbacks.add(argumentBackend.intercept(
++                    stackBlurRadius,
++                    ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
++                    (thisObject, args) -> {
++                        if (!activityState.isActive() || args.length == 0
++                                || !(args[0] instanceof Float radius)) {
++                            return;
++                        }
++                        args[0] = NotificationShadeBlurPolicy.blurRatio(true, radius);
++                    })::unhook);
+             return HookInstallResult.installed(HOOK_ID);
+         } catch (Throwable error) {
+             for (int index = rollbacks.size() - 1; index >= 0; index--) {
+@@ -312,12 +332,17 @@
+     }
+ 
+     private static boolean isShadeBlurTarget(
+-            Object value, Class<?> shadeWindowClass, Class<?> notificationPanelClass) {
+-        return shadeWindowClass.isInstance(value) || notificationPanelClass.isInstance(value);
++            Object value, Class<?> shadeWindowClass, Class<?> notificationPanelClass,
++            Class<?> shadeBackgroundClass) {
++        return shadeWindowClass.isInstance(value)
++                || notificationPanelClass.isInstance(value)
++                || shadeBackgroundClass.isInstance(value);
+     }
+ 
+     private static boolean isShadeBlendTarget(
+-            Object value, Class<?> shadeWindowClass, Class<?> notificationPanelClass) {
++            Object value, Class<?> shadeWindowClass, Class<?> notificationPanelClass,
++            Class<?> shadeBackgroundClass) {
++        if (shadeBackgroundClass.isInstance(value)) return true;
+         if (!(value instanceof View view)) return false;
+         Object parent = view.getParent();
+         return shadeWindowClass.isInstance(parent) || notificationPanelClass.isInstance(parent);

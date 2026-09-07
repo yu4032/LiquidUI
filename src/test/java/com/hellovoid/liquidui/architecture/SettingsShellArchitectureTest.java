@@ -16,6 +16,7 @@ public class SettingsShellArchitectureTest {
         assertTrue(source.contains("ConfigSchema.ENABLED"));
         assertTrue(source.contains("ConfigSchema.DIAGNOSTICS_ENABLED"));
         assertTrue(source.contains("ConfigSchema.NOTIFICATION_GLASS_ENABLED"));
+        assertTrue(source.contains("ConfigSchema.NOTIFICATION_DEBUG_FORCE_RED_BACKGROUND"));
         assertFalse(source.contains("editor.clear()"));
         assertFalse(source.contains("LiquidDock"));
     }
@@ -27,6 +28,9 @@ public class SettingsShellArchitectureTest {
         assertTrue(source.contains("ConfigSchema.ENABLED"));
         assertTrue(source.contains("ConfigSchema.DIAGNOSTICS_ENABLED"));
         assertTrue(source.contains("ConfigSchema.NOTIFICATION_GLASS_ENABLED"));
+        assertTrue(source.contains("ConfigSchema.NOTIFICATION_DEBUG_FORCE_RED_BACKGROUND"));
+        assertTrue(source.contains("⚠ 调试：强制红色通知背景"));
+        assertTrue(source.contains("关闭通知液态玻璃"));
         assertTrue(source.contains("systemui-001"));
         assertTrue(source.contains("SwitchPreference("));
         assertFalse(source.contains("Dock"));

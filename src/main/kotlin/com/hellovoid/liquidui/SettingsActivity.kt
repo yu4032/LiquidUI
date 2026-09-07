@@ -75,6 +75,12 @@ private fun LiquidUiSettings(activity: SettingsActivity) {
                     )
                     BooleanSetting(
                         prefs = prefs,
+                        config = ConfigSchema.NOTIFICATION_DEBUG_FORCE_RED_BACKGROUND,
+                        title = "⚠ 调试：强制红色通知背景",
+                        summary = "开启后关闭通知液态玻璃与 PassBlur 探针，只安装纯红 final-render Hook；重启 SystemUI 生效",
+                    )
+                    BooleanSetting(
+                        prefs = prefs,
                         config = ConfigSchema.DIAGNOSTICS_ENABLED,
                         title = "诊断日志",
                         summary = "保留更详细的 target 与 Hook 安装结果",

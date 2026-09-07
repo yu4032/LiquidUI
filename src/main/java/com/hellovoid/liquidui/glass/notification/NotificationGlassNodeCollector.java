@@ -44,6 +44,10 @@ final class NotificationGlassNodeCollector {
         this.expandHeightField = accessible(expandHeightField);
     }
 
+    boolean isRow(Object value) {
+        return rowClass.isInstance(value);
+    }
+
     Object backgroundView(Object row) throws IllegalAccessException {
         return rowClass.isInstance(row) ? backgroundNormalField.get(row) : null;
     }
@@ -93,9 +97,14 @@ final class NotificationGlassNodeCollector {
             float topRadius = number(topCornerRadius.invoke(rowObject));
             float bottomRadius = number(bottomCornerRadius.invoke(rowObject));
             float opacity = row.getAlpha();
-            return new NotificationGlassNode(
+            NotificationGlassNode node = new NotificationGlassNode(
                     left, top, actualWidth, visibleHeight,
                     topRadius, topRadius, bottomRadius, bottomRadius, opacity);
+            NotificationCornerAuthorityProbe.observeNode(
+                    rowObject, row, background, host, node,
+                    actualWidth, actualHeight, clipTop, clipBottom,
+                    expand, topRadius, bottomRadius);
+            return node;
         } catch (Throwable ignored) {
             return null;
         }

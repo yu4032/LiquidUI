@@ -37,6 +37,7 @@ public final class LiquidUiApp extends Application
             reconcile(ConfigSchema.ENABLED);
             reconcile(ConfigSchema.DIAGNOSTICS_ENABLED);
             reconcile(ConfigSchema.NOTIFICATION_GLASS_ENABLED);
+            reconcile(ConfigSchema.NOTIFICATION_DEBUG_FORCE_RED_BACKGROUND);
         } catch (Throwable error) {
             Log.w("LiquidUI", "Remote Preferences reconciliation failed", error);
         }
@@ -56,6 +57,8 @@ public final class LiquidUiApp extends Application
             sync(ConfigSchema.DIAGNOSTICS_ENABLED);
         } else if (ConfigSchema.NOTIFICATION_GLASS_ENABLED.name().equals(key)) {
             sync(ConfigSchema.NOTIFICATION_GLASS_ENABLED);
+        } else if (ConfigSchema.NOTIFICATION_DEBUG_FORCE_RED_BACKGROUND.name().equals(key)) {
+            sync(ConfigSchema.NOTIFICATION_DEBUG_FORCE_RED_BACKGROUND);
         }
     }
 

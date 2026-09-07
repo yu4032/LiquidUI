@@ -20,7 +20,10 @@ public class ConfigSchemaContractTest {
         assertFalse(ConfigSchema.DIAGNOSTICS_ENABLED.defaultValue());
         assertEquals("notification_glass_enabled", ConfigSchema.NOTIFICATION_GLASS_ENABLED.name());
         assertTrue(ConfigSchema.NOTIFICATION_GLASS_ENABLED.defaultValue());
-        assertEquals(3L, ConfigSchema.all().size());
+        ConfigKey<?> redDebug = reflectedSchemaKey("NOTIFICATION_DEBUG_FORCE_RED_BACKGROUND");
+        assertEquals("notification_debug_force_red_background", redDebug.name());
+        assertFalse((Boolean) redDebug.defaultValue());
+        assertEquals(4L, ConfigSchema.all().size());
 
         Set<String> names = new HashSet<>();
         for (ConfigKey<?> key : ConfigSchema.all()) {
@@ -62,16 +65,35 @@ public class ConfigSchemaContractTest {
         assertTrue(defaultConfig.enabled());
         assertFalse(defaultConfig.diagnosticsEnabled());
         assertTrue(defaultConfig.notificationGlassEnabled());
+        assertFalse(reflectedBooleanGetter(defaultConfig, "notificationDebugForceRedBackground"));
 
         ConfigReader overrides = new ConfigReader((name, fallback) -> {
             if (name.equals("enabled")) return false;
             if (name.equals("diagnostics_enabled")) return true;
             if (name.equals("notification_glass_enabled")) return false;
+            if (name.equals("notification_debug_force_red_background")) return true;
             return fallback;
         });
         LiquidUiConfig config = LiquidUiConfig.from(overrides);
         assertFalse(config.enabled());
         assertTrue(config.diagnosticsEnabled());
         assertFalse(config.notificationGlassEnabled());
+        assertTrue(reflectedBooleanGetter(config, "notificationDebugForceRedBackground"));
+    }
+
+    private static ConfigKey<?> reflectedSchemaKey(String fieldName) {
+        try {
+            return (ConfigKey<?>) ConfigSchema.class.getField(fieldName).get(null);
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("missing schema key " + fieldName, error);
+        }
+    }
+
+    private static boolean reflectedBooleanGetter(Object receiver, String methodName) {
+        try {
+            return (Boolean) receiver.getClass().getMethod(methodName).invoke(receiver);
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("missing config getter " + methodName, error);
+        }
     }
 }

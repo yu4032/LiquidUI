@@ -124,7 +124,7 @@ public class NotificationSharedGlassArchitectureTest {
 
 
     @Test
-    public void producerSamplingFollowsHyperOsNotifPassBlurAuthority() throws Exception {
+    public void liquidUiProducerBindDoesNotRequireHyperOsNotifPassBlurGate() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
@@ -133,11 +133,25 @@ public class NotificationSharedGlassArchitectureTest {
         assertTrue(hook.contains("authorityState.observe(requested)"));
         assertTrue(session.contains("authorityState.addListener"));
         assertTrue(session.contains("setVendorPassBlurEnabled"));
-        assertTrue(renderer.contains("vendorPassBlurEnabled"));
-        assertTrue(renderer.contains("!vendorPassBlurEnabled"));
-        assertTrue(renderer.contains("SystemUiPassBlurBridge.unbind"));
-        assertFalse(bridge.contains("setMiBlurWinExc"));
-        assertFalse(bridge.contains("exclusions"));
+        assertTrue(renderer.contains("vendorPassBlurEnabled")); // diagnostics only
+        assertFalse(renderer.contains("!vendorPassBlurEnabled"));
+        assertFalse(renderer.contains("recovery.requestBind && vendorPassBlurEnabled"));
+        assertFalse(renderer.contains("enabled && vendorPassBlurEnabled"));
+        assertTrue(renderer.contains("SystemUiPassBlurBridge.bind"));
+        assertTrue(bridge.contains("setMiBlurWinExc"));
+        assertTrue(bridge.contains("exclusions"));
+    }
+
+    @Test
+    public void vendorPassBlurAuthorityBootstrapsFromNotificationBlurProviderSnapshot() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        assertTrue(hook.contains("getDeclaredField(\"passBlur\")"));
+        assertTrue(hook.contains("authorityState.observe(blurProviderPassBlur.getBoolean(thisObject))"));
+        int blurHook = hook.indexOf("blurProviderSetRatio,");
+        int activityGuard = hook.indexOf("!activityState.isActive()", blurHook);
+        int bootstrap = hook.indexOf("authorityState.observe(blurProviderPassBlur.getBoolean(thisObject))", blurHook);
+        assertTrue(blurHook >= 0 && bootstrap > blurHook && activityGuard > bootstrap);
+        assertFalse(hook.contains("blurProviderPassBlur.setBoolean"));
     }
 
     @Test
@@ -156,18 +170,51 @@ public class NotificationSharedGlassArchitectureTest {
 
 
     @Test
-    public void passBlurSourceComesFromRootTaskDisplayAreaNotShadeWindowRoot() throws Exception {
+    public void passBlurProducerTargetsNotificationShadeRootWhileRtdaTracksLifecycle() throws Exception {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
         assertTrue(hook.contains("com.android.wm.shell.RootTaskDisplayAreaOrganizer"));
-        assertTrue(hook.contains("onDisplayAreaAppeared"));
-        assertTrue(hook.contains("onDisplayAreaVanished"));
         assertTrue(hook.contains("sourceState.observe"));
-        assertTrue(bridge.contains("SurfaceControl sourceSurface"));
         assertTrue(renderer.contains("sourceState.snapshot"));
         assertTrue(renderer.contains("sourceGeneration"));
-        assertFalse(bridge.contains("setPassBlurSurface.invoke(transaction, rootSurface"));
+        assertTrue(bridge.contains("SurfaceControl sourceSurface"));
+        assertTrue(bridge.contains("SurfaceControl hostRootSurface"));
+        assertTrue(bridge.contains("setPassBlurSurface.invoke(transaction, hostRootSurface, producerSurface)"));
+        assertTrue(bridge.contains("setUpdateTextureFlag.invoke(transaction, hostRootSurface, true, SCALE)"));
+        assertFalse(bridge.contains("setPassBlurSurface.invoke(transaction, sourceSurface, producerSurface)"));
+        assertTrue(bridge.contains("sourceAuthority=NotificationShadeViewRoot"));
+    }
+
+    @Test
+    public void gpuFirstFrameHandoffDoesNotRequireHyperOsNotifPassBlurAuthority() throws Exception {
+        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+
+        int firstFrame = session.indexOf("@Override public void onFirstFrameActive()");
+        int terminalFailure = session.indexOf("@Override public void onTerminalFailure", firstFrame);
+        assertTrue(firstFrame >= 0 && terminalFailure > firstFrame);
+        String firstFrameBody = session.substring(firstFrame, terminalFailure);
+        assertFalse(firstFrameBody.contains("authorityState.isEnabled()"));
+        assertTrue(firstFrameBody.contains("active = true"));
+        assertTrue(firstFrameBody.contains("renderer.setAlpha(1f)"));
+        assertTrue(firstFrameBody.contains("suppressVendorMaterial()"));
+
+        int vendorChange = session.indexOf("private void onVendorPassBlurChanged");
+        int contentChange = session.indexOf("private void onContentAuthorityChanged", vendorChange);
+        int sourceChange = session.indexOf("private void onPassBlurSourceChanged", contentChange);
+        assertTrue(vendorChange >= 0 && contentChange > vendorChange && sourceChange > contentChange);
+        String vendorBody = session.substring(vendorChange, contentChange);
+        assertTrue(vendorBody.contains("diagnostic only"));
+        assertTrue(vendorBody.contains("setVendorPassBlurEnabled"));
+        assertFalse(vendorBody.contains("active = false"));
+        assertFalse(vendorBody.contains("renderer.setAlpha(0f)"));
+        assertFalse(vendorBody.contains("materialController.restoreAll()"));
+        assertFalse(vendorBody.contains("setShadeBlurSuppression(false)"));
+
+        int installPreDraw = session.indexOf("private void installPreDraw", sourceChange);
+        String sourceBody = session.substring(sourceChange, installPreDraw);
+        assertTrue(sourceBody.contains("if (snapshot.available()) refreshScene();"));
+        assertFalse(sourceBody.contains("authorityState.isEnabled()"));
     }
 
     @Test
@@ -181,6 +228,65 @@ public class NotificationSharedGlassArchitectureTest {
         assertTrue(collector.contains("bottomCornerRadius.invoke(rowObject)"));
         assertFalse(collector.contains("cornerRadiiField"));
     }
+    @Test
+    public void producerRecreateWaitsForOutputEglInsteadOfFailingStartup() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        assertTrue(renderer.contains("ProducerRecreateReadinessState"));
+        assertTrue(renderer.contains("requestProducerRecreate"));
+        assertTrue(renderer.contains("producer recreate deferred until output EGL ready"));
+        assertTrue(renderer.contains("drainDeferredProducerRecreate"));
+        assertTrue(renderer.contains("producerRecreateReadiness.onOutputUnavailable()"));
+        int finish = renderer.indexOf("private void finishOutputAttach");
+        int ready = renderer.indexOf("producerRecreateReadiness.onOutputReady()", finish);
+        int drain = renderer.indexOf("drainDeferredProducerRecreate", finish);
+        int resources = renderer.indexOf("ensureGlResources()", finish);
+        assertTrue(finish >= 0 && ready > finish && drain > ready && resources > drain);
+        assertFalse(renderer.contains("recreateInputProducer(\"source-change:"));
+    }
+
+    @Test
+    public void producerRecreateCrossChecksActualEglBeforeRunning() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        int request = renderer.indexOf("private void requestProducerRecreate");
+        int drain = renderer.indexOf("private void drainDeferredProducerRecreate", request);
+        int recreate = renderer.indexOf("private void recreateInputProducer", drain);
+        assertTrue(request >= 0 && drain > request && recreate > drain);
+        String requestBody = renderer.substring(request, drain);
+        String drainBody = renderer.substring(drain, recreate);
+        assertTrue(requestBody.contains("hasLiveOutputEgl()"));
+        assertTrue(requestBody.contains("READINESS_MISMATCH"));
+        assertTrue(requestBody.contains("producerRecreateReadiness.onOutputUnavailable()"));
+        assertTrue(drainBody.contains("hasLiveOutputEgl()"));
+        assertTrue(drainBody.contains("producer recreate resume postponed"));
+    }
+
+    @Test
+    public void outputTextureViewStaysVisibleForSurfaceLifecycleButHiddenByAlphaUntilFirstFrame() throws Exception {
+        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+        assertFalse(session.contains("renderer.setVisibility(View.INVISIBLE)"));
+        assertTrue(session.contains("renderer.setAlpha(0f)"));
+        assertTrue(session.contains("renderer.setAlpha(1f)"));
+
+        int create = session.indexOf("new NotificationPassBlurTextureView");
+        int hidden = session.indexOf("renderer.setAlpha(0f)", create);
+        int add = session.indexOf("host.addView(renderer", create);
+        assertTrue(create >= 0 && hidden > create && add > hidden);
+
+        int firstFrame = session.indexOf("onFirstFrameActive()");
+        int visible = session.indexOf("renderer.setAlpha(1f)", firstFrame);
+        assertTrue(firstFrame >= 0 && visible > firstFrame);
+    }
+
+    @Test
+    public void glInitializationDoesNotOverwriteProducerCreatedByDeferredRecreate() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        int ensure = renderer.indexOf("private void ensureGlResources()");
+        int next = renderer.indexOf("private void createInputProducer()", ensure);
+        String body = renderer.substring(ensure, next);
+        assertTrue(body.contains("oesTexture == 0 || inputSurfaceTexture == null || inputProducerSurface == null"));
+        assertTrue(body.contains("createInputProducer()"));
+    }
+
     private static long occurrences(String value, String needle) {
         long count = 0;
         int offset = 0;
@@ -190,4 +296,41 @@ public class NotificationSharedGlassArchitectureTest {
         }
         return count;
     }
+    @Test
+    public void contentAuthorityComesFromExactNotificationShadeWindowStateKeyguardShowing() throws Exception {
+        String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
+        assertTrue(hook.contains("com.android.systemui.shade.NotificationShadeWindowControllerImpl"));
+        assertTrue(hook.contains("com.android.systemui.shade.NotificationShadeWindowState"));
+        assertTrue(hook.contains("\"apply\", shadeWindowStateClass"));
+        assertTrue(hook.contains("getDeclaredField(\"keyguardShowing\")"));
+        assertTrue(hook.contains("contentAuthorityState.observe("));
+        assertFalse(hook.contains("isKeyguardShowingAndNotOccluded"));
+    }
+
+    @Test
+    public void unlockedShadeExcludesExactXiaomiLockWallpaperLayerOnlyByContentAuthority() throws Exception {
+        String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
+        String state = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurContentAuthorityState.java");
+        assertTrue(bridge.contains("Wallpaper BBQ wrapper-lock"));
+        assertTrue(bridge.contains("contentAuthority.excludeLockWallpaper()"));
+        assertTrue(bridge.contains("keyguardShowing="));
+        assertTrue(bridge.contains("excludeLockWallpaper="));
+        assertTrue(state.contains("return known && !keyguardShowing"));
+    }
+
+    @Test
+    public void keyguardContentGenerationForcesFreshPassBlurProducerBeforeHandoff() throws Exception {
+        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
+        assertTrue(session.contains("contentAuthorityState.addListener"));
+        assertTrue(session.contains("contentAuthorityState.removeListener"));
+        assertTrue(session.contains("renderer.onPassBlurContentAuthorityChanged(snapshot)"));
+        assertTrue(session.contains("materialController.restoreAll()"));
+        assertTrue(renderer.contains("rebindProducer(\"content-authority\")"));
+        assertTrue(renderer.contains("contentAuthorityState.snapshot()"));
+        assertTrue(renderer.contains("binding.contentGeneration != contentSnapshot.generation()"));
+        assertTrue(bridge.contains("final long contentGeneration"));
+    }
+
 }

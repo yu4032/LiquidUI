@@ -8,9 +8,12 @@ public final class ConfigSchema {
             new ConfigKey<>("diagnostics_enabled", false);
     public static final ConfigKey<Boolean> NOTIFICATION_GLASS_ENABLED =
             new ConfigKey<>("notification_glass_enabled", true);
+    public static final ConfigKey<Boolean> NOTIFICATION_DEBUG_FORCE_RED_BACKGROUND =
+            new ConfigKey<>("notification_debug_force_red_background", false);
 
     private static final List<ConfigKey<?>> ALL = List.of(
-            ENABLED, DIAGNOSTICS_ENABLED, NOTIFICATION_GLASS_ENABLED);
+            ENABLED, DIAGNOSTICS_ENABLED, NOTIFICATION_GLASS_ENABLED,
+            NOTIFICATION_DEBUG_FORCE_RED_BACKGROUND);
 
     private ConfigSchema() {}
 
