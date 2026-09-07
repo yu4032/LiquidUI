@@ -69,6 +69,50 @@ final class SystemUiPassBlurBridge {
                         long endpointGeneration) {
         if (materialHost == null || rootSurface == null || producerSurface == null) return null;
         if (!rootSurface.isValid()) return null;
+        try (SurfaceControl.Transaction transaction = new SurfaceControl.Transaction()) {
+            Binding binding = bindInTransaction(
+                    materialHost, rootSurface, producerSurface, endpointGeneration, transaction);
+            if (binding != null) {
+                transaction.apply();
+            }
+            return binding;
+        } catch (Throwable error) {
+            log("bind unavailable " + error);
+            return null;
+        }
+    }
+
+    /**
+     * Bind into ViewRootImpl's own surface-created/replaced transaction. The caller owns and applies
+     * the transaction; using the same transaction makes the PassBlur producer follow the new root
+     * atomically instead of racing a stale SurfaceControl between traversals.
+     */
+    static Binding bindInTransaction(
+            View materialHost,
+            Surface producerSurface,
+            long endpointGeneration,
+            SurfaceControl.Transaction transaction) {
+        if (materialHost == null || producerSurface == null || transaction == null) return null;
+        try {
+            SurfaceControl rootSurface = resolveRootSurface(materialHost);
+            return bindInTransaction(
+                    materialHost, rootSurface, producerSurface, endpointGeneration, transaction);
+        } catch (Throwable error) {
+            log("bind-in-transaction unavailable root resolution " + error);
+            return null;
+        }
+    }
+
+    private static Binding bindInTransaction(
+            View materialHost,
+            SurfaceControl rootSurface,
+            Surface producerSurface,
+            long endpointGeneration,
+            SurfaceControl.Transaction transaction) {
+        if (materialHost == null || rootSurface == null || producerSurface == null || transaction == null) {
+            return null;
+        }
+        if (!rootSurface.isValid()) return null;
         try {
             Object viewRoot = getViewRootImpl(materialHost);
             if (viewRoot == null) {
@@ -91,23 +135,19 @@ final class SystemUiPassBlurBridge {
             Method setUpdateTextureFlag = tx.getMethod(
                     "setUpdateTextureFlag", SurfaceControl.class, boolean.class, float.class);
 
-            String hostRootName = surfaceName(hostRootSurface);
-            try (SurfaceControl.Transaction transaction = new SurfaceControl.Transaction()) {
-                setPassBlurSurface.invoke(transaction, hostRootSurface, producerSurface);
-                setUpdateTextureFlag.invoke(transaction, hostRootSurface, true, SCALE);
-                transaction.apply();
-            }
+            setPassBlurSurface.invoke(transaction, hostRootSurface, producerSurface);
+            setUpdateTextureFlag.invoke(transaction, hostRootSurface, true, SCALE);
 
             Binding binding = new Binding(
                     hostRootSurface,
                     setPassBlurSurface,
                     setUpdateTextureFlag,
-                    hostRootName,
+                    surfaceName(hostRootSurface),
                     System.identityHashCode(viewRoot),
                     readSurfaceSequenceId(viewRoot),
                     surfaceLayerId(hostRootSurface),
                     endpointGeneration);
-            log("bound root=" + hostRootName
+            log("bound root=" + binding.hostRootName
                     + " rootLayer=" + binding.rootLayerId
                     + " surfaceSeq=" + binding.surfaceSequenceId
                     + " viewRoot=" + binding.viewRootIdentity
@@ -140,6 +180,13 @@ final class SystemUiPassBlurBridge {
         }
     }
 
+    /** Mark a root-owned endpoint stale without touching the long-lived producer BufferQueue. */
+    static void invalidate(Binding binding) {
+        if (binding == null) return;
+        binding.bound = false;
+        binding.updatesEnabled = false;
+    }
+
     static void unbind(Binding binding) {
         if (binding == null || !binding.bound) return;
         try {
@@ -154,8 +201,7 @@ final class SystemUiPassBlurBridge {
         } catch (Throwable error) {
             log("unbind failed " + error);
         } finally {
-            binding.bound = false;
-            binding.updatesEnabled = false;
+            invalidate(binding);
         }
     }
 
