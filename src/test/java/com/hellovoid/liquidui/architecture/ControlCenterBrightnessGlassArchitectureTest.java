@@ -30,7 +30,8 @@ public final class ControlCenterBrightnessGlassArchitectureTest {
         assertTrue(material.contains("android.R.id.background"));
         assertTrue(material.contains("findDrawableByLayerId"));
         assertTrue(material.contains("setAlpha(0)"));
-        assertTrue(material.contains("setAlpha(255)"));
+        assertTrue(material.contains("originalAlpha"));
+        assertTrue(material.contains("setAlpha(state.originalAlpha)"));
 
         String combined = hook + adapter + material;
         assertFalse(combined.contains("setProgressDrawable"));
