@@ -2,14 +2,21 @@ package com.hellovoid.liquidui.glass.core;
 
 import android.opengl.GLES20;
 
+import com.hellovoid.prismal.PrismalParams;
 import com.hellovoid.prismal.PrismalRenderer;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.WeakHashMap;
 
-/** Shared Prismal fast path for the refraction-only Window glass profile. */
+/**
+ * Owns the derived Prismal blur program mode for one shared renderer.
+ * Zero blur uses an exact fast copy; non-zero blur restores the official Gaussian kernel.
+ */
 final class PrismalPerformanceTuner {
-    private static final String FAST_COPY_VERTEX =
+    private enum Mode { GAUSSIAN, FAST_COPY }
+
+    private static final String BLUR_VERTEX =
             "attribute vec2 a_position;\n" +
             "varying vec2 v_texCoord;\n" +
             "void main() {\n" +
@@ -18,8 +25,8 @@ final class PrismalPerformanceTuner {
             "    v_texCoord.y = 1.0 - v_texCoord.y;\n" +
             "}\n";
 
-    // renderBlurPass() requires u_texelSize and u_sigma to remain active uniforms. The tiny
-    // offset keeps both live without producing a visible displacement at Window scale.
+    // renderBlurPass() requires u_texelSize and u_sigma to stay live. The tiny offset keeps the
+    // uniforms active while remaining far below one framebuffer sub-pixel.
     private static final String FAST_COPY_FRAGMENT =
             "precision highp float;\n" +
             "uniform sampler2D u_texture;\n" +
@@ -31,27 +38,70 @@ final class PrismalPerformanceTuner {
             "    gl_FragColor = texture2D(u_texture, clamp(v_texCoord + keepUniforms, 0.0, 1.0));\n" +
             "}\n";
 
-    private static final Map<PrismalRenderer, Boolean> TUNED = new WeakHashMap<>();
+    private static final String GAUSSIAN_FRAGMENT =
+            "precision highp float;\n" +
+            "uniform sampler2D u_texture;\n" +
+            "uniform vec2 u_texelSize;\n" +
+            "uniform float u_sigma;\n" +
+            "varying vec2 v_texCoord;\n" +
+            "void main() {\n" +
+            "    float s = max(u_sigma, 0.5);\n" +
+            "    float s2 = s * s * 2.0;\n" +
+            "    float norm = 0.0;\n" +
+            "    vec3 col = vec3(0.0);\n" +
+            "    for (float i = -15.0; i <= 15.0; i += 1.0) {\n" +
+            "        float w = exp(-i * i / s2);\n" +
+            "        vec2 uv = clamp(v_texCoord + vec2(i * u_texelSize.x, 0.0), 0.0, 1.0);\n" +
+            "        col += texture2D(u_texture, uv).rgb * w;\n" +
+            "        norm += w;\n" +
+            "    }\n" +
+            "    gl_FragColor = vec4(col / norm, 1.0);\n" +
+            "}\n";
+
+    private static final String GAUSSIAN_VERTICAL_FRAGMENT =
+            GAUSSIAN_FRAGMENT.replace(
+                    "vec2(i * u_texelSize.x, 0.0)",
+                    "vec2(0.0, i * u_texelSize.y)");
+
+    private static final Map<PrismalRenderer, Mode> MODES = new WeakHashMap<>();
 
     private PrismalPerformanceTuner() {}
 
-    static synchronized void ensureFastBackdrop(PrismalRenderer renderer) {
-        if (renderer == null || TUNED.containsKey(renderer)) return;
-        int fastH = 0;
-        int fastV = 0;
+    /** Rebuild the renderer's one derived blur texture for the exact next node profile. */
+    static synchronized void prepareNodeBackdrop(PrismalRenderer renderer, PrismalParams params) {
+        Objects.requireNonNull(renderer, "renderer");
+        Objects.requireNonNull(params, "params");
+        Mode desired = params.blurRadiusPx <= 0f ? Mode.FAST_COPY : Mode.GAUSSIAN;
+        Mode current = MODES.get(renderer);
+        if (current == null) {
+            // PrismalRenderer.ensurePrograms() creates the official Gaussian programs first.
+            current = Mode.GAUSSIAN;
+            MODES.put(renderer, current);
+        }
+        if (current != desired) {
+            replaceBlurPrograms(renderer, desired);
+            MODES.put(renderer, desired);
+        }
+        renderer.renderBlur(params);
+    }
+
+    private static void replaceBlurPrograms(PrismalRenderer renderer, Mode mode) {
+        String horizontal = mode == Mode.FAST_COPY ? FAST_COPY_FRAGMENT : GAUSSIAN_FRAGMENT;
+        String vertical = mode == Mode.FAST_COPY ? FAST_COPY_FRAGMENT : GAUSSIAN_VERTICAL_FRAGMENT;
+        int nextH = 0;
+        int nextV = 0;
         try {
-            fastH = renderer.createProgram(FAST_COPY_VERTEX, FAST_COPY_FRAGMENT);
-            fastV = renderer.createProgram(FAST_COPY_VERTEX, FAST_COPY_FRAGMENT);
+            nextH = renderer.createProgram(BLUR_VERTEX, horizontal);
+            nextV = renderer.createProgram(BLUR_VERTEX, vertical);
             int oldH = renderer.blurHProgram;
             int oldV = renderer.blurVProgram;
-            renderer.blurHProgram = fastH;
-            renderer.blurVProgram = fastV;
+            renderer.blurHProgram = nextH;
+            renderer.blurVProgram = nextV;
             if (oldH != 0) GLES20.glDeleteProgram(oldH);
             if (oldV != 0) GLES20.glDeleteProgram(oldV);
-            TUNED.put(renderer, Boolean.TRUE);
         } catch (Throwable error) {
-            if (fastH != 0) GLES20.glDeleteProgram(fastH);
-            if (fastV != 0) GLES20.glDeleteProgram(fastV);
+            if (nextH != 0) GLES20.glDeleteProgram(nextH);
+            if (nextV != 0) GLES20.glDeleteProgram(nextV);
             throw error;
         }
     }

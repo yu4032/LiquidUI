@@ -24,13 +24,18 @@ final class GlassCompositor {
             int framebufferHeight,
             int insetLeft,
             int insetTop) {
-        PrismalPerformanceTuner.ensureFastBackdrop(renderer);
         renderer.beginGlassFrame();
         if (scene == null) return;
+        Float activeBlurRadius = null;
         for (GlassNode node : scene.nodes()) {
             if (node == null || !node.drawable()) continue;
             MaterialProfileRegistry.MaterialState state =
                     materialProfiles.stateFor(node.materialProfile());
+            if (activeBlurRadius == null
+                    || Float.compare(activeBlurRadius, state.params().blurRadiusPx) != 0) {
+                PrismalPerformanceTuner.prepareNodeBackdrop(renderer, state.params());
+                activeBlurRadius = state.params().blurRadiusPx;
+            }
             float centerX = insetLeft + node.left() + node.width() * 0.5f;
             float centerY = insetTop + node.top() + node.height() * 0.5f;
             PrismalGeometry geometry = new PrismalGeometry(

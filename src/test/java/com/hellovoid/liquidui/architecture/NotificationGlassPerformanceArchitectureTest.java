@@ -14,7 +14,7 @@ public class NotificationGlassPerformanceArchitectureTest {
     }
 
     @Test
-    public void phaseZeroProfileSkipsExpensiveGaussianWithCoreTuner() throws Exception {
+    public void phaseZeroProfileSkipsExpensiveGaussianWithPerNodeBlurPolicy() throws Exception {
         String material = read("src/main/java/com/hellovoid/liquidui/glass/core/MaterialProfileRegistry.java");
         String tuner = read("src/main/java/com/hellovoid/liquidui/glass/core/PrismalPerformanceTuner.java");
         String compositor = read("src/main/java/com/hellovoid/liquidui/glass/core/GlassCompositor.java");
@@ -22,12 +22,10 @@ public class NotificationGlassPerformanceArchitectureTest {
         assertEquals(0L, GlassParameter.BLUR.defaultRaw());
         assertTrue(material.contains("GlassPrismalAdapter.toPrismal"));
         assertTrue(tuner.contains("FAST_COPY_FRAGMENT"));
-        assertTrue(tuner.contains("renderer.createProgram"));
-        assertTrue(tuner.contains("renderer.blurHProgram = fastH"));
-        assertTrue(tuner.contains("renderer.blurVProgram = fastV"));
-        assertTrue(tuner.contains("GLES20.glDeleteProgram(oldH)"));
-        assertTrue(tuner.contains("GLES20.glDeleteProgram(oldV)"));
-        assertTrue(compositor.contains("PrismalPerformanceTuner.ensureFastBackdrop(renderer)"));
+        assertTrue(tuner.contains("GAUSSIAN_FRAGMENT"));
+        assertTrue(tuner.contains("params.blurRadiusPx <= 0f"));
+        assertTrue(tuner.contains("renderer.renderBlur(params)"));
+        assertTrue(compositor.contains("PrismalPerformanceTuner.prepareNodeBackdrop(renderer, state.params())"));
     }
 
     @Test

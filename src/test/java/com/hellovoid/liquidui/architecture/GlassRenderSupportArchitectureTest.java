@@ -22,7 +22,7 @@ public final class GlassRenderSupportArchitectureTest {
     }
 
     @Test
-    public void compositorConsumesResolvedParamsAndHighlightsPerNodeProfile() throws Exception {
+    public void compositorConsumesResolvedParamsHighlightsAndBlurPerNodeProfile() throws Exception {
         String source = Files.readString(Path.of(
                 "src/main/java/com/hellovoid/liquidui/glass/core/GlassCompositor.java"));
         assertTrue(source.contains("GlassSceneState"));
@@ -31,7 +31,8 @@ public final class GlassRenderSupportArchitectureTest {
         assertTrue(source.contains("materialProfiles.stateFor(node.materialProfile())"));
         assertTrue(source.contains("state.params()"));
         assertTrue(source.contains("state.highlights()"));
-        assertTrue(source.contains("PrismalPerformanceTuner.ensureFastBackdrop"));
+        assertTrue(source.contains("PrismalPerformanceTuner.prepareNodeBackdrop"));
+        assertFalse(source.contains("ensureFastBackdrop"));
         assertFalse(source.contains("REFRACTION_ONLY"));
         assertFalse(source.contains("Notification"));
     }
