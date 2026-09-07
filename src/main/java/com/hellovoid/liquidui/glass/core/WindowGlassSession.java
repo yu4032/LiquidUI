@@ -192,6 +192,13 @@ public class WindowGlassSession implements AutoCloseable {
     public synchronized void setVendorPassBlurEnabled(boolean enabled, String reason) {
         if (closed.get()) return;
         vendorPassBlurEnabled = enabled;
+        if (!enabled) {
+            long producerGeneration = presentationState.producerGeneration();
+            if (producerGeneration >= 0L) {
+                handleRendererPresentation(
+                        Set.of(), presentationState.sourceLost(producerGeneration));
+            }
+        }
         if (renderer != null) renderer.setVendorPassBlurEnabled(enabled, reason);
     }
 
@@ -337,6 +344,7 @@ public class WindowGlassSession implements AutoCloseable {
             if (binding.bindingClosed) continue;
             try { binding.listener.onTerminalFailure(stage, error); } catch (Throwable ignored) {}
         }
+        close();
     }
 
     private static Map<String, Long> lifecycleMap(List<GlassNode> nodes) {
