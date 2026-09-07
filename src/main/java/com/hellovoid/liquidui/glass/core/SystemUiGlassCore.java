@@ -5,6 +5,8 @@ import android.os.HandlerThread;
 import android.view.Display;
 import android.view.View;
 
+import com.hellovoid.liquidui.config.GlassStyleConfig;
+
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -18,6 +20,7 @@ public final class SystemUiGlassCore implements AutoCloseable {
     private final HandlerThread renderThread;
     private final Handler renderHandler;
     private final WindowGlassRegistry windows;
+    private final GlassStyleUpdateQueue styleUpdates;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     /** Production path: owns the process-global SystemUI glass render thread. */
@@ -27,6 +30,9 @@ public final class SystemUiGlassCore implements AutoCloseable {
         renderThread.start();
         renderHandler = new Handler(renderThread.getLooper());
         windows = new WindowGlassRegistry(key -> sessionFactory.create(key, renderHandler));
+        styleUpdates = new GlassStyleUpdateQueue(
+                command -> renderHandler.post(command),
+                snapshot -> windows.updateGlassStyles(snapshot.style(), snapshot.version()));
     }
 
     /**
@@ -37,6 +43,9 @@ public final class SystemUiGlassCore implements AutoCloseable {
         windows = new WindowGlassRegistry(Objects.requireNonNull(sessionFactory, "sessionFactory"));
         renderThread = null;
         renderHandler = null;
+        styleUpdates = new GlassStyleUpdateQueue(
+                Runnable::run,
+                snapshot -> windows.updateGlassStyles(snapshot.style(), snapshot.version()));
     }
 
     /** Resolve any attached component View to one ViewRoot/display session, never to the component. */
@@ -59,6 +68,16 @@ public final class SystemUiGlassCore implements AutoCloseable {
     public WindowGlassSession sessionFor(Object root, int displayId) {
         if (closed.get()) throw new IllegalStateException("core closed");
         return windows.sessionFor(new WindowKey(root, displayId));
+    }
+
+    /**
+     * Publish a complete immutable style snapshot. High-frequency slider writes are coalesced onto
+     * the one process render queue and only the latest snapshot is delivered to Window sessions.
+     */
+    public long updateGlassStyles(GlassStyleConfig style) {
+        Objects.requireNonNull(style, "style");
+        if (closed.get()) throw new IllegalStateException("core closed");
+        return styleUpdates.submit(style);
     }
 
     Handler renderHandler() {
