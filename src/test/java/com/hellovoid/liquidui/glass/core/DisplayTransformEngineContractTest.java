@@ -8,13 +8,15 @@ import static org.junit.Assert.assertTrue;
 
 public class DisplayTransformEngineContractTest {
     @Test
-    public void everyRotationPrecedesSurfaceTextureCrop() {
+    public void inverseBufferRotationPrecedesSurfaceTextureCrop() {
         float[] crop = affine(0.25f, 0f, 0.05f, 0f, -0.25f, 0.75f);
 
+        // configRotation is ViewRoot's buffer transform hint: it describes how the buffer is
+        // rotated to appear in the Window. Sampling travels Window -> buffer, so use its inverse.
         assertPoint(0, 0f, 0f, crop, 0.05f, 0.75f);
-        assertPoint(1, 0f, 0f, crop, 0.05f, 0.50f);
+        assertPoint(1, 0f, 0f, crop, 0.30f, 0.75f);
         assertPoint(2, 0f, 0f, crop, 0.30f, 0.50f);
-        assertPoint(3, 0f, 0f, crop, 0.30f, 0.75f);
+        assertPoint(3, 0f, 0f, crop, 0.05f, 0.50f);
 
         for (int rotation = 0; rotation < 4; rotation++) {
             DisplayTransform transform = DisplayTransformEngine.compose(
@@ -23,6 +25,19 @@ public class DisplayTransformEngineContractTest {
             assertEquals(0.175f, center[0], 0.0001f);
             assertEquals(0.625f, center[1], 0.0001f);
         }
+    }
+
+    @Test
+    public void landscapeTransformHintsReverseVerticalSamplingDirection() {
+        DisplayTransform clockwiseHint = DisplayTransformEngine.compose(
+                snapshot(1, identity(), 7L, 11L));
+        DisplayTransform counterClockwiseHint = DisplayTransformEngine.compose(
+                snapshot(3, identity(), 7L, 11L));
+
+        // ROTATE_90 displays buffer bottom-right at Window bottom-left, so reverse sampling maps
+        // Window bottom-left back to buffer bottom-right. ROTATE_270 is the opposite mapping.
+        assertMapped(clockwiseHint, 0f, 0f, 1f, 0f);
+        assertMapped(counterClockwiseHint, 0f, 0f, 0f, 1f);
     }
 
     @Test
@@ -53,7 +68,7 @@ public class DisplayTransformEngineContractTest {
         assertTrue(transform.matches(7L, 11L));
         assertFalse(transform.matches(8L, 11L));
         assertFalse(transform.matches(7L, 12L));
-        assertMapped(transform, 0f, 0f, 1f, 0f);
+        assertMapped(transform, 0f, 0f, 0f, 1f);
     }
 
     private static void assertPoint(
