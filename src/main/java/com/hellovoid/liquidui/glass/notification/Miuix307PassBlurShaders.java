@@ -2,6 +2,10 @@ package com.hellovoid.liquidui.glass.notification;
 
 /** Shader sources that adapt the HyperOS PassBlur external-OES producer into Prismal's 2D domain. */
 final class Miuix307PassBlurShaders {
+    // Temporary GPU-only visual probe. The normalized texture is split into three equal panels:
+    // raw OES UV, SurfaceTexture matrix only, and the current Stage-B mapping.
+    static final boolean MAPPING_PROBE_ENABLED = true;
+
     static final String QUAD_VERTEX = """
             attribute vec2 aPosition;
             attribute vec2 aUv;
@@ -56,10 +60,6 @@ final class Miuix307PassBlurShaders {
             }
 
             vec2 compensateSurfaceTextureCropPreservingOrientation(vec2 orientedUv) {
-                // SurfaceTexture commonly supplies a signed-permutation orientation matrix with
-                // independent crop scales and translation. Normalize both columns to recover only
-                // orientation, then solve the original affine transform backwards so its crop is
-                // neutralized without cancelling flips or quarter turns.
                 vec2 column0 = vec2(uTexMatrix[0][0], uTexMatrix[0][1]);
                 vec2 column1 = vec2(uTexMatrix[1][0], uTexMatrix[1][1]);
                 float scale0 = length(column0);
@@ -75,8 +75,6 @@ final class Miuix307PassBlurShaders {
 
                 vec2 orientation0 = column0 / scale0;
                 vec2 orientation1 = column1 / scale1;
-                // A crop matrix should keep its two texture axes orthogonal. If a future producer
-                // supplies a real shear, preserve the framework transform instead of guessing.
                 if (abs(dot(orientation0, orientation1)) > 0.001) return orientedUv;
 
                 vec2 orientationBias = vec2(
@@ -91,24 +89,40 @@ final class Miuix307PassBlurShaders {
                         (-a10 * rhs.x + a00 * rhs.y) / determinant);
             }
 
-            void main() {
-                // The Floating Dock PassBlur producer can expose only part of the material while
-                // the Dock is being pulled in from off-screen. Fill the off-domain sampling guard
-                // with a mirrored continuation of real producer pixels instead of transparent
-                // black. The final material pass still scissors PARTIAL coverage, so these guard
-                // pixels are never directly presented; blur/refraction alone may sample them.
-                vec2 sampleDockUv = mirrorDockUv(vUv);
-
-                // Keep Stage-B producer mapping itself intentionally unclamped. Mirroring happens
-                // in Dock-local space against the measured producer-valid interval, so unavailable
-                // coordinates never collapse into one repeated SurfaceTexture edge texel.
+            vec2 currentStageBUv(vec2 localUv) {
+                vec2 sampleDockUv = mirrorDockUv(localUv);
                 vec2 rootUv = uBackdropRect.xy + sampleDockUv * uBackdropRect.zw;
                 vec2 orientedUv = orientRootUv(rootUv);
-
                 vec2 textureInputUv =
                         compensateSurfaceTextureCropPreservingOrientation(orientedUv);
-                vec4 transformed = uTexMatrix * vec4(textureInputUv, 0.0, 1.0);
-                gl_FragColor = texture2D(uTexture, transformed.xy);
+                return (uTexMatrix * vec4(textureInputUv, 0.0, 1.0)).xy;
+            }
+
+            void main() {
+                vec2 panelUv;
+                vec4 sampled;
+                if (vUv.x < 0.333333) {
+                    panelUv = vec2(vUv.x * 3.0, vUv.y);
+                    vec2 rawUv = panelUv;
+                    sampled = texture2D(uTexture, rawUv);
+                } else if (vUv.x < 0.666667) {
+                    panelUv = vec2((vUv.x - 0.333333) * 3.0, vUv.y);
+                    vec2 matrixUv = (uTexMatrix * vec4(panelUv, 0.0, 1.0)).xy;
+                    sampled = texture2D(uTexture, matrixUv);
+                } else {
+                    panelUv = vec2((vUv.x - 0.666667) * 3.0, vUv.y);
+                    vec2 stageBUv = currentStageBUv(panelUv);
+                    sampled = texture2D(uTexture, stageBUv);
+                }
+
+                // Force opaque output so an alpha mismatch cannot disguise valid producer RGB.
+                if (abs(vUv.x - 0.333333) < 0.0025) {
+                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+                } else if (abs(vUv.x - 0.666667) < 0.0025) {
+                    gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+                } else {
+                    gl_FragColor = vec4(sampled.rgb, 1.0);
+                }
             }
             """;
 
