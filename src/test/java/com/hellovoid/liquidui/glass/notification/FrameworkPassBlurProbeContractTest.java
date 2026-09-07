@@ -48,4 +48,60 @@ public class FrameworkPassBlurProbeContractTest {
         assertFalse(glassHook.contains("FrameworkPassBlurProbe"));
         assertTrue(moduleMain.contains("FrameworkPassBlurProbeHook"));
     }
+
+    @Test
+    public void transactionProbeObservesExactShadePassBlurOwnershipWithoutMutation() throws Exception {
+        Path probePath = Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/FrameworkPassBlurTransactionProbe.java");
+        assertTrue(Files.exists(probePath));
+        String probe = Files.readString(probePath);
+        String hook = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/FrameworkPassBlurProbeHook.java"));
+        String graph = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/FrameworkPassBlurProbe.java"));
+
+        assertTrue(hook.contains("SetPassBlurSurface"));
+        assertTrue(hook.contains("setUpdateTextureFlag"));
+        assertTrue(hook.contains("FrameworkPassBlurTransactionProbe::observeSetPassBlurSurface"));
+        assertTrue(hook.contains("FrameworkPassBlurTransactionProbe::observeSetUpdateTextureFlag"));
+        assertTrue(graph.contains("FrameworkPassBlurTransactionProbe.registerShadeRoot"));
+        assertTrue(probe.contains("[NotifGlass][FrameworkPB][TX]"));
+        assertTrue(probe.contains("sequence"));
+        assertTrue(probe.contains("Thread.currentThread"));
+        assertTrue(probe.contains("getStackTrace"));
+
+        assertFalse(hook.contains("ArgumentRewriteHookBackend"));
+        assertFalse(probe.contains("SetPassBlurSurface.invoke"));
+        assertFalse(probe.contains("setUpdateTextureFlag.invoke"));
+        assertFalse(probe.contains("new SurfaceControl.Transaction"));
+        assertFalse(probe.contains(".apply()"));
+        assertFalse(probe.contains(".release()"));
+        assertFalse(probe.contains("addTextureView.invoke"));
+    }
+
+    @Test
+    public void frameworkProbeReinspectsAfterShadeAttachAndMatchingTransactions() throws Exception {
+        String hook = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/FrameworkPassBlurProbeHook.java"));
+        String graph = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/FrameworkPassBlurProbe.java"));
+        String transaction = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/FrameworkPassBlurTransactionProbe.java"));
+        String session = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java"));
+
+        assertTrue(hook.contains("onAttachedToWindow"));
+        assertTrue(hook.contains("FrameworkPassBlurProbe.inspectIfGenerationChanged"));
+        assertTrue(graph.contains("inspectIfGenerationChanged"));
+        assertTrue(graph.contains("probeGeneration"));
+        assertTrue(graph.contains("inspectionFingerprint"));
+        assertTrue(graph.toLowerCase().contains("removetextureview"));
+        assertTrue(transaction.contains("FrameworkPassBlurProbe.onMatchingShadeTransaction"));
+        // The already-attached notification stack is the guaranteed Shade-root authority. The
+        // NotificationPanelView attach hook is only an auxiliary early trigger because the exact
+        // target may inherit or override attach lifecycle at a different declaring class.
+        assertTrue(session.contains("FrameworkPassBlurProbe.inspectIfGenerationChanged(stack)"));
+        assertFalse(graph.contains("addTextureView.invoke"));
+        assertFalse(graph.contains("removeTextureView.invoke"));
+    }
 }
