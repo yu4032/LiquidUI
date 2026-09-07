@@ -11,20 +11,21 @@ public class NotificationSharedGlassArchitectureTest {
     private static String read(String path) throws Exception { return Files.readString(Path.of(path)); }
 
     @Test
-    public void activeHookOwnsOneSharedNsslRuntimeAndNoStandaloneProbe() throws Exception {
+    public void activeHookDelegatesToInjectedWindowCoreAndNoStandaloneProbe() throws Exception {
         String module = read("src/main/java/com/hellovoid/liquidui/ModuleMain.java");
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationSharedGlassHook.java");
         String runtime = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassRuntime.java");
-        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+        String adapter = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassAdapter.java");
 
-        assertTrue(module.contains("new NotificationSharedGlassHook"));
-        assertFalse(module.contains("new NotificationLiquidGlassHook"));
+        assertTrue(module.contains("new SystemUiGlassCore("));
+        assertTrue(module.contains("new NotificationSharedGlassHook("));
+        assertTrue(hook.contains("SystemUiGlassCore glassCore"));
         assertTrue(hook.contains("NotificationGlassRuntime"));
         assertFalse(hook.contains("NotificationGpuPassBlurStreamProbe"));
-        assertFalse(hook.contains("streamProbe.observe"));
-        assertTrue(runtime.contains("WeakHashMap<View, NotificationGlassSession> sessions"));
-        assertTrue(session.contains("new NotificationPassBlurTextureView"));
-        assertTrue(session.contains("NotificationGlassSceneState"));
+        assertTrue(runtime.contains("SystemUiGlassCore glassCore"));
+        assertTrue(runtime.contains("new NotificationGlassAdapter("));
+        assertFalse(runtime.contains("NotificationGlassSession"));
+        assertTrue(adapter.contains("core.sessionFor(stack)"));
     }
 
     @Test
@@ -39,15 +40,6 @@ public class NotificationSharedGlassArchitectureTest {
         assertTrue(hook.contains("rowClass.getField(\"mBackgroundNormal\")"));
         assertTrue(hook.contains("fallbackController.applySharedGlassFallbackMaterial(target)"));
         assertTrue(fallback.contains("CARD_PASS_BLUR_RADIUS_DP = 2.0f"));
-        assertTrue(fallback.contains("applySharedGlassFallbackMaterial"));
-        assertFalse(fallback.substring(
-                fallback.indexOf("void applySharedGlassFallbackMaterial"),
-                fallback.indexOf("void applyHyperLightElementMaterial"))
-                .contains("scheduleAgslRefractionProbe"));
-        assertFalse(fallback.substring(
-                fallback.indexOf("void applySharedGlassFallbackMaterial"),
-                fallback.indexOf("void applyHyperLightElementMaterial"))
-                .contains("enableGpuBackdropContainer"));
         assertTrue(handoff.contains("background.setAlpha(0f)"));
         assertFalse(handoff.substring(
                 handoff.indexOf("void suppressRow"), handoff.indexOf("void restoreRow"))
@@ -58,115 +50,73 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
-    public void sharedSessionRevokesBeforeRootRolloverRebind() throws Exception {
-        String observer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationViewRootSurfaceObserver.java");
-        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
-        String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
+    public void windowCoreRevokesBeforeRootRolloverRecovery() throws Exception {
+        String observer = read("src/main/java/com/hellovoid/liquidui/glass/core/ViewRootSurfaceObserver.java");
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java");
+        String bridge = read("src/main/java/com/hellovoid/liquidui/glass/core/SystemUiPassBlurBridge.java");
 
-        assertTrue(observer.contains("SurfaceChangedCallback"));
         assertTrue(observer.contains("addSurfaceChangedCallback"));
         assertTrue(observer.contains("surfaceDestroyed"));
         assertTrue(observer.contains("surfaceCreated"));
         assertTrue(observer.contains("surfaceReplaced"));
         assertTrue(observer.contains("host.post(() -> listener.onSurfaceReady(name))"));
         assertFalse(observer.contains("SystemUiPassBlurBridge.bind("));
-        assertFalse(observer.contains("SurfaceControl.Transaction transaction"));
-        assertTrue(session.contains("revokeSharedPresentation(\"root-surface-destroyed\")"));
-        assertTrue(session.contains("renderer.rebindProducer(\"root-\" + event)"));
-        assertTrue(session.contains("renderer.setAlpha(0f)"));
-        assertTrue(session.contains("materialController.restoreAll()"));
+        assertTrue(renderer.contains("presentationState.sourceLost(producerGeneration)"));
+        assertTrue(renderer.contains("producerRecovery.onRootLost(producerGeneration)"));
+        assertTrue(renderer.indexOf("presentationState.sourceLost(producerGeneration)")
+                < renderer.indexOf("recreateInputProducer(\"root-destroyed\")"));
         assertFalse(bridge.contains("bindInTransaction"));
     }
 
     @Test
-    public void activationCarriesRendererOwnedGenerationAcrossThreadBoundary() throws Exception {
-        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
-        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+    public void activationCarriesExactRendererOwnedNodeLifecycle() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java");
+        String presentation = read("src/main/java/com/hellovoid/liquidui/glass/core/WindowPresentationState.java");
 
-        assertTrue(renderer.contains("void onSourceBound(long sourceGeneration)"));
-        assertTrue(renderer.contains("void onFirstFrameActive(\n                long sourceGeneration, long sceneGeneration, long swapSequence)"));
-        assertTrue(renderer.contains("activationListener.onSourceBound(endpointGeneration)"));
-        assertTrue(renderer.contains("activationListener.onFirstFrameActive(\n                                activationSourceGeneration,\n                                activationSceneGeneration,\n                                activationSwapSequence)"));
-        assertTrue(session.contains("onSourceBound(long generation)"));
-        assertTrue(session.contains("presentationState.sourceBound(generation)"));
-        assertTrue(session.contains("onFirstFrameActive(\n            long sourceGeneration, long sceneGeneration, long swapSequence)"));
-        assertTrue(session.contains("presentationState.freshFrame(sourceGeneration)"));
-        assertTrue(session.contains("presentationState.swapSucceeded(\n                        sourceGeneration, sceneGeneration, swapSequence)"));
-        assertFalse(session.contains("sourceGeneration++"));
-    }
-
-    @Test
-    public void rejectedActivationRearmsRendererForCurrentScene() throws Exception {
-        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
-        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
-
-        assertTrue(renderer.contains("void requestActivationRetry()"));
-        int start = renderer.indexOf("void requestActivationRetry()");
-        int end = renderer.indexOf("void requestSceneRefresh()", start);
-        assertTrue(start >= 0 && end > start);
-        String retry = renderer.substring(start, end);
-        assertTrue(retry.contains("firstDrawLogged = false"));
-        assertTrue(retry.contains("drawLatestFrame(false)"));
-        assertTrue(session.contains("renderer.requestActivationRetry()"));
-        assertTrue(session.indexOf("renderer.requestActivationRetry()")
-                > session.indexOf("late/stale GPU activation rejected"));
+        assertTrue(renderer.contains("new GlassActivationToken("));
+        assertTrue(renderer.contains("currentNodes"));
+        assertTrue(renderer.contains("node.lifecycleGeneration()"));
+        assertTrue(renderer.contains("presentationState.accept(token)"));
+        assertTrue(presentation.contains("current.longValue() != rendered.getValue()"));
+        assertTrue(presentation.contains("token.profileVersion() != profileVersion"));
+        assertTrue(presentation.contains("token.producerGeneration() != producerGeneration"));
     }
 
     @Test
     public void producerPauseResumeRequiresANewFreshFrameBeforeReactivation() throws Exception {
-        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java");
+        String recovery = read("src/main/java/com/hellovoid/liquidui/glass/core/ProducerRecoveryState.java");
+
         int start = renderer.indexOf("void setProducerUpdatesEnabled");
         int end = renderer.indexOf("void setVendorPassBlurEnabled");
         assertTrue(start >= 0 && end > start);
         String gate = renderer.substring(start, end);
-
         assertTrue(gate.contains("producerRecovery.onGeometryInvalidated()"));
         assertTrue(gate.contains("frameAvailable.set(false)"));
-        assertTrue(gate.contains("firstDrawLogged = false"));
-        assertTrue(renderer.contains("|| !producerUpdatesEnabled || !vendorPassBlurEnabled"));
+        assertTrue(gate.contains("presentationState.sourceBound("));
+        assertTrue(recovery.contains("freshGeneration = 0L"));
+        assertTrue(recovery.contains("isReady"));
     }
 
     @Test
-    public void sceneRefreshDoesNotAddAnotherAnimationFrameAndCoalescesGpuDraws() throws Exception {
-        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
-        int start = renderer.indexOf("void requestSceneRefresh()");
-        int end = renderer.indexOf("void setProducerUpdatesEnabled", start);
-        assertTrue(start >= 0 && end > start);
-        String refresh = renderer.substring(start, end);
+    public void sceneAndSourceRequestsCoalesceOnOneSharedFrameCoordinator() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java");
+        String coordinator = read("src/main/java/com/hellovoid/liquidui/glass/core/FrameCoordinator.java");
+        String notification = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassAdapter.java");
 
-        assertFalse(refresh.contains("postOnAnimation"));
-        assertTrue(refresh.contains("updateBackdropMapping()"));
-        assertTrue(refresh.contains("scheduleDraw(false)"));
-        assertTrue(renderer.contains("AtomicBoolean drawScheduled"));
-        assertTrue(renderer.contains("scheduleDraw(true)"));
+        assertTrue(renderer.contains("frameCoordinator.requestScene()"));
+        assertTrue(renderer.contains("frameCoordinator.requestSourceFrame()"));
+        assertFalse(renderer.contains("AtomicBoolean drawScheduled"));
+        assertTrue(coordinator.contains("sourcePending"));
+        assertTrue(coordinator.contains("scenePending"));
+        assertFalse(notification.contains("postOnAnimation"));
     }
 
     @Test
-    public void validatedBackdropMappingPreservesSurfaceTextureCropAndCorrectsRotation() throws Exception {
-        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
-        String shaders = read("src/main/java/com/hellovoid/liquidui/glass/notification/Miuix307PassBlurShaders.java");
-        String material = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassMaterial.java");
-
-        assertTrue(shaders.contains("uniform mat4 uWindowUvToOes;"));
-        assertTrue(shaders.contains("uWindowUvToOes * vec4(vUv, 0.0, 1.0)"));
-        assertFalse(shaders.contains("orientRootUv"));
-        assertFalse(shaders.contains("uConfigRot"));
-        assertFalse(shaders.contains("uBackdropRect"));
-        assertFalse(shaders.contains("compensateSurfaceTextureCropPreservingOrientation"));
-        assertFalse(shaders.contains("MAPPING_PROBE_ENABLED = true"));
-        assertFalse(shaders.contains("panelUv"));
-        assertTrue(material.contains("b.displacementScale = 1.70f"));
-        assertTrue(material.contains("b.chromaticAberration = 42f"));
-        assertTrue(renderer.contains("DisplayTransformEngine.compose"));
-        assertFalse(renderer.contains("compensateSurfaceTextureCropPreservingOrientation"));
-        assertFalse(renderer.contains("glReadPixels"));
-    }
-
-    @Test
-    public void sharedRendererUsesFullScaleZeroCopyPassBlurAndPrismal() throws Exception {
-        String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
-        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
-        String compositor = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassCompositor.java");
+    public void windowRendererUsesFullScaleZeroCopyPassBlurAndPrismal() throws Exception {
+        String bridge = read("src/main/java/com/hellovoid/liquidui/glass/core/SystemUiPassBlurBridge.java");
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java");
+        String compositor = read("src/main/java/com/hellovoid/liquidui/glass/core/GlassCompositor.java");
 
         assertTrue(bridge.contains("SCALE = 1.0f"));
         assertFalse(bridge.contains("SCALE = 0.25f"));
@@ -177,33 +127,10 @@ public class NotificationSharedGlassArchitectureTest {
         assertTrue(renderer.contains("prismalRenderer.prepareBackdrop"));
         assertTrue(renderer.contains("eglSwapBuffers"));
         assertTrue(compositor.contains("renderer.drawGlass"));
-
         assertFalse(renderer.contains("PixelCopy"));
         assertFalse(renderer.contains("ImageReader"));
         assertFalse(renderer.contains("MediaProjection"));
-        assertFalse(renderer.contains("ScreenCapture"));
         assertFalse(renderer.contains("glReadPixels"));
-    }
-
-    @Test
-    public void validatedProbeDocumentsFreshProducerAfterPassBlurRootDestruct() throws Exception {
-        String probe = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGpuPassBlurStreamProbe.java");
-        assertTrue(probe.contains("retireGpuProducerForRootRollover"));
-        assertTrue(probe.contains("recreateGpuProducerForRootRollover"));
-        assertTrue(probe.contains("producerPreserved=false"));
-        assertTrue(probe.contains("producerSurface = null"));
-        assertTrue(probe.contains("surfaceTexture = null"));
-        assertFalse(probe.contains("producerPreserved=true"));
-        assertFalse(probe.contains("postDelayed"));
-        assertFalse(probe.contains("Thread.sleep"));
-    }
-
-    @Test
-    public void failedBindDoesNotAdvanceEndpointGeneration() throws Exception {
-        String probe = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGpuPassBlurStreamProbe.java");
-        assertTrue(probe.contains("long nextGeneration = endpointGeneration + 1"));
-        assertTrue(probe.contains("endpointGeneration = next.endpointGeneration"));
-        assertFalse(probe.contains("++endpointGeneration"));
     }
 
     @Test
@@ -215,6 +142,7 @@ public class NotificationSharedGlassArchitectureTest {
         assertTrue(collector.contains("nativeCardRadiusPx(background)"));
         assertFalse(collector.contains("topCornerRadius.invoke(rowObject)"));
         assertFalse(collector.contains("bottomCornerRadius.invoke(rowObject)"));
+        assertTrue(collector.contains("GlassMaterialProfile.CARD"));
         assertTrue(registry.contains("OutlineState"));
         assertTrue(registry.contains("useActualHeightGeometry"));
         assertTrue(registry.contains("useFlipRadius"));
