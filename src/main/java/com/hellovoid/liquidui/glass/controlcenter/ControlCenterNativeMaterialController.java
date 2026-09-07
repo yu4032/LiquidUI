@@ -50,7 +50,15 @@ public final class ControlCenterNativeMaterialController implements NativeMateri
         State state = states.get(host);
         if (state == null || state.iconWrapper != iconWrapper) return;
         state.active = active;
-        if (state.suppressed) applySuppression(state);
+        if (!state.suppressed) return;
+        try {
+            applySuppression(state);
+        } catch (Throwable error) {
+            // Keep this callback local: the current authorized frame was already validated during
+            // initial suppress. A later vendor drawable anomaly must not crash SystemUI.
+            try { restoreNativeFinalState(state); } catch (Throwable ignored) {}
+            state.suppressed = false;
+        }
     }
 
     public void forget(View host) {
@@ -63,8 +71,8 @@ public final class ControlCenterNativeMaterialController implements NativeMateri
     public void suppress(View host, long generation) throws Throwable {
         State state = states.computeIfAbsent(host, ignored -> new State());
         state.generation = generation;
-        state.suppressed = true;
         applySuppression(state);
+        state.suppressed = true;
     }
 
     @Override
@@ -85,21 +93,19 @@ public final class ControlCenterNativeMaterialController implements NativeMateri
         }
     }
 
-    private void applySuppression(State state) {
-        try {
-            cancelBackgroundAnimator(state.iconWrapper);
-            ImageView image = imageView(state.iconWrapper);
-            Drawable drawable = image.getDrawable();
-            if (!(drawable instanceof LayerDrawable layers)) return;
-            int last = layers.getNumberOfLayers() - 1;
-            if (last < 1) return;
-            for (int index = 0; index < last; index++) {
-                layers.getDrawable(index).setAlpha(0);
-            }
-            image.invalidate();
-        } catch (Throwable ignored) {
-            // Presentation owner will fail closed if the initial suppress call itself throws.
+    private void applySuppression(State state) throws Throwable {
+        cancelBackgroundAnimator(state.iconWrapper);
+        ImageView image = imageView(state.iconWrapper);
+        Drawable drawable = image.getDrawable();
+        if (!(drawable instanceof LayerDrawable layers)) {
+            throw new IllegalStateException("QS icon drawable is not LayerDrawable");
         }
+        int last = layers.getNumberOfLayers() - 1;
+        if (last < 1) throw new IllegalStateException("QS icon LayerDrawable has no background");
+        for (int index = 0; index < last; index++) {
+            layers.getDrawable(index).setAlpha(0);
+        }
+        image.invalidate();
     }
 
     private void restoreNativeFinalState(State state) throws Throwable {
@@ -129,7 +135,7 @@ public final class ControlCenterNativeMaterialController implements NativeMateri
     }
 
     private void cancelBackgroundAnimator(Object iconWrapper) throws IllegalAccessException {
-        if (iconWrapper == null) return;
+        if (iconWrapper == null) throw new IllegalStateException("missing MiuiQSIconViewImpl");
         Object value = animatorField.get(iconWrapper);
         if (value instanceof ObjectAnimator animator) animator.cancel();
     }
