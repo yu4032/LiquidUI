@@ -32,4 +32,29 @@ public class NotificationGlassVisualCorrectnessArchitectureTest {
         assertTrue(material.contains("b.lensRefractionScale = 2.20f"));
         assertTrue(material.contains("b.chromaticAberration = 42f"));
     }
+
+    @Test
+    public void sharedNotificationHostHasNoSamplingOverscan() throws Exception {
+        String renderer = read(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+
+        assertFalse(renderer.contains("EDGE_OVERSCAN_DP"));
+        assertFalse(renderer.contains("PrismalSampling.requiredGuardPx"));
+        assertTrue(renderer.contains("return new SamplingInsets(0, 0, 0, 0);"));
+    }
+
+    @Test
+    public void glassUsesSameFixedRadiusAuthorityAsNativeMiuiPassBlurOutline() throws Exception {
+        String collector = read(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java");
+        String hook = read(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationSharedGlassHook.java");
+
+        assertTrue(collector.contains("notification_item_bg_radius"));
+        assertTrue(collector.contains("nativeCardRadiusPx(background)"));
+        assertFalse(collector.contains("topCornerRadius.invoke(rowObject)"));
+        assertFalse(collector.contains("bottomCornerRadius.invoke(rowObject)"));
+        assertFalse(hook.contains("rowClass.getMethod(\"getTopCornerRadius\")"));
+        assertFalse(hook.contains("rowClass.getMethod(\"getBottomCornerRadius\")"));
+    }
 }
