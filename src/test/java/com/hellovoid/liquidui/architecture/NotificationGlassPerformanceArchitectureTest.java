@@ -13,10 +13,10 @@ public class NotificationGlassPerformanceArchitectureTest {
     }
 
     @Test
-    public void notificationProfileSkipsExpensiveGaussianWithLocalTuner() throws Exception {
-        String material = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassMaterial.java");
-        String tuner = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPrismalPerformanceTuner.java");
-        String compositor = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassCompositor.java");
+    public void phaseZeroProfileSkipsExpensiveGaussianWithCoreTuner() throws Exception {
+        String material = read("src/main/java/com/hellovoid/liquidui/glass/core/MaterialProfileRegistry.java");
+        String tuner = read("src/main/java/com/hellovoid/liquidui/glass/core/PrismalPerformanceTuner.java");
+        String compositor = read("src/main/java/com/hellovoid/liquidui/glass/core/GlassCompositor.java");
 
         assertTrue(material.contains("b.blurRadiusPx = 0f"));
         assertTrue(tuner.contains("FAST_COPY_FRAGMENT"));
@@ -25,13 +25,13 @@ public class NotificationGlassPerformanceArchitectureTest {
         assertTrue(tuner.contains("renderer.blurVProgram = fastV"));
         assertTrue(tuner.contains("GLES20.glDeleteProgram(oldH)"));
         assertTrue(tuner.contains("GLES20.glDeleteProgram(oldV)"));
-        assertTrue(compositor.contains("NotificationPrismalPerformanceTuner.ensureFastBackdrop(renderer)"));
+        assertTrue(compositor.contains("PrismalPerformanceTuner.ensureFastBackdrop(renderer)"));
     }
 
     @Test
-    public void gpuOnlyAndRefractionContractsRemainIntact() throws Exception {
-        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
-        String material = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassMaterial.java");
+    public void gpuOnlyAndRefractionContractsRemainIntactInWindowCore() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java");
+        String material = read("src/main/java/com/hellovoid/liquidui/glass/core/MaterialProfileRegistry.java");
 
         assertTrue(renderer.contains("GL_TEXTURE_EXTERNAL_OES"));
         assertTrue(renderer.contains("updateTexImage"));
