@@ -162,8 +162,10 @@ public class NotificationNativePassBlurSourceExperimentTest {
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java");
         String registry = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationMaterialTargetRegistry.java");
         String controller = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationVendorMaterialController.java");
-        assertTrue(collector.contains("topCornerRadius.invoke(rowObject)"));
-        assertTrue(collector.contains("bottomCornerRadius.invoke(rowObject)"));
+        assertTrue(collector.contains("notification_item_bg_radius"));
+        assertTrue(collector.contains("nativeCardRadiusPx(background)"));
+        assertFalse(collector.contains("topCornerRadius.invoke(rowObject)"));
+        assertFalse(collector.contains("bottomCornerRadius.invoke(rowObject)"));
         assertTrue(hook.contains("observeRoundRect"));
         assertTrue(registry.contains("OutlineState"));
         assertTrue(registry.contains("useActualHeightGeometry"));
