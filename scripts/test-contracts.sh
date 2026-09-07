@@ -45,6 +45,7 @@ mapfile -t PURE_MAIN < <(
        "$ROOT/src/main/java/com/hellovoid/liquidui/reflect" \
        "$ROOT/src/main/java/com/hellovoid/liquidui/config" \
        "$ROOT/src/main/java/com/hellovoid/liquidui/diagnostics" \
+       "$ROOT/src/main/java/com/hellovoid/liquidui/glass/core" \
        -name '*.java' -print | sort
 )
 for f in NotificationGlassNode.java NotificationGlassSceneSnapshot.java NotificationGlassSceneState.java ZeroCopyProducerRecoveryState.java Miuix307BackdropMapping.java NotificationGlassActivityState.java NotificationShadeBlurPolicy.java NotificationPassBlurAuthorityState.java NotificationGlassPresentationState.java; do
