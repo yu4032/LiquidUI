@@ -118,6 +118,27 @@ final class NotificationVendorMaterialController {
         }
     }
 
+    /**
+     * Stable fallback used underneath the shared GPU glass scene. It deliberately excludes the
+     * earlier AGSL/container probes: only the verified 2dp card PassBlur and element mix remain.
+     */
+    void applySharedGlassFallbackMaterial(View target) {
+        if (target == null) return;
+        boolean light = isLight(target);
+        int[] materialColors = light ? LIGHT_MATERIAL_COLORS : DARK_MATERIAL_COLORS;
+        int[] materialModes = light ? LIGHT_MATERIAL_MODES : DARK_MATERIAL_MODES;
+        try {
+            enableCardBackdrop(target);
+            setMixEffectEnabled.invoke(target, true);
+            setMiViewBlurMode.invoke(target, 1);
+            setMiBackgroundBlendColors.invoke(
+                    target, buildBlendConfig(materialColors, materialModes));
+            target.setClipToOutline(true);
+        } catch (Throwable error) {
+            logError("shared fallback material failed target=" + target.getClass().getName(), error);
+        }
+    }
+
     void applyHyperLightElementMaterial(View target, Object row) {
         if (target == null) return;
         boolean light = isLight(target);
@@ -142,7 +163,7 @@ final class NotificationVendorMaterialController {
         }
     }
 
-    /** Existing card-local native PassBlur consumer, retained as the visual control for this spike. */
+    /** Existing card-local native PassBlur consumer, retained as the visual fallback. */
     private void enableCardBackdrop(View target) throws Exception {
         int radiusPx = blurRadiusPx(target);
         setMiBackgroundBlurMode.invoke(target, 1);
@@ -157,12 +178,6 @@ final class NotificationVendorMaterialController {
         }
     }
 
-    /**
-     * GPU-only feasibility probe. This mirrors the exact SystemUI clock container sequence from the
-     * supplied MiuiSystemUI.apk: pass-window blur, background mode/radius, pass texture scale 0,
-     * disable contain-below, then choose the member View. The compositor owns the sampled backdrop;
-     * no Bitmap, CPU screenshot, PixelCopy, MediaProjection or SurfaceControl capture is involved.
-     */
     private void enableGpuBackdropContainer(Object row, View member) throws Exception {
         if (!(row instanceof View container)) {
             if (gpuBackdropLogged.compareAndSet(false, true)) {
@@ -189,7 +204,6 @@ final class NotificationVendorMaterialController {
         }
     }
 
-    /** Wait for the real notification geometry before applying the AGSL RenderEffect. */
     private void scheduleAgslRefractionProbe(View target) {
         int width = Math.max(target.getWidth(), target.getMeasuredWidth());
         int height = Math.max(target.getHeight(), target.getMeasuredHeight());
@@ -225,16 +239,10 @@ final class NotificationVendorMaterialController {
         }
     }
 
-    /**
-     * Feasibility probe only: apply an intentionally strong AGSL displacement to this exact View.
-     * If the GPU blur-container member is included in the View render input, the backdrop will bend
-     * near the card edge and split into RGB fringes.
-     */
     private void applyAgslRefractionProbe(View target) {
         int width = Math.max(target.getWidth(), target.getMeasuredWidth());
         int height = Math.max(target.getHeight(), target.getMeasuredHeight());
         if (width <= 0 || height <= 0) return;
-
         try {
             if (refractionShader == null) {
                 refractionShader = new RuntimeShader(AGSL_REFRACTION_PROBE);
@@ -242,9 +250,9 @@ final class NotificationVendorMaterialController {
             }
             refractionShader.setFloatUniform("size", (float) width, (float) height);
             refractionShader.setFloatUniform("refractionAmount", PROBE_REFRACTION_AMOUNT_PX);
-            refractionShader.setFloatUniform("chromaticAberration", PROBE_CHROMATIC_ABERRATION_PX);
+            refractionShader.setFloatUniform(
+                    "chromaticAberration", PROBE_CHROMATIC_ABERRATION_PX);
             target.setRenderEffect(refractionEffect);
-
             if (agslLogged.compareAndSet(false, true)) {
                 log("applied AGSL refraction probe target=" + target.getClass().getName()
                         + " size=" + width + "x" + height
@@ -256,42 +264,48 @@ final class NotificationVendorMaterialController {
         }
     }
 
-    private static int blurRadiusPx(View target) {
-        return Math.max(1, Math.round(
-                CARD_PASS_BLUR_RADIUS_DP * target.getResources().getDisplayMetrics().density));
-    }
-
-    private static boolean isLight(View target) {
-        int night = target.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-        return night != Configuration.UI_MODE_NIGHT_YES;
-    }
-
-    private static ArrayList<Point> buildBlendConfig(int[] colors, int[] modes) {
-        int count = Math.min(colors.length, modes.length);
-        ArrayList<Point> config = new ArrayList<>(count);
-        for (int index = 0; index < count; index++) {
-            config.add(new Point(colors[index], modes[index]));
+    private static ArrayList<Integer> buildBlendConfig(int[] colors, int[] modes) {
+        ArrayList<Integer> config = new ArrayList<>(colors.length * 2);
+        for (int index = 0; index < colors.length; index++) {
+            config.add(colors[index]);
+            config.add(modes[index]);
         }
         return config;
     }
 
     private static float[] scaledBloomStroke(View target, boolean light) {
-        float[] values = (light ? LIGHT_BLOOM_STROKE : DARK_BLOOM_STROKE).clone();
-        float density = target.getResources().getDisplayMetrics().density;
-        values[0] = (values[0] * density) + 0.5f;
-        values[6] = (values[6] * density) + 0.5f;
-        return values;
+        float density = Math.max(0.1f, target.getResources().getDisplayMetrics().density);
+        float[] base = light ? LIGHT_BLOOM_STROKE : DARK_BLOOM_STROKE;
+        float[] copy = base.clone();
+        copy[0] *= density;
+        copy[6] *= density;
+        return copy;
+    }
+
+    private static int blurRadiusPx(View target) {
+        float density = Math.max(0.1f, target.getResources().getDisplayMetrics().density);
+        return Math.max(1, Math.round(CARD_PASS_BLUR_RADIUS_DP * density));
+    }
+
+    private static boolean isLight(View target) {
+        int night = target.getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK;
+        return night != Configuration.UI_MODE_NIGHT_YES;
     }
 
     private static void log(String message) {
-        String formatted = LiquidUiLog.format(TAG + " " + message);
-        android.util.Log.i("LiquidUI", formatted);
-        try { Api101Bridge.log(formatted); } catch (Throwable ignored) {}
+        try {
+            Api101Bridge.log(LiquidUiLog.format(TAG + " " + message));
+        } catch (Throwable ignored) {
+            android.util.Log.i("LiquidUI", "[LUI]" + TAG + " " + message);
+        }
     }
 
     private static void logError(String message, Throwable error) {
-        String formatted = LiquidUiLog.format(TAG + " " + message);
-        android.util.Log.e("LiquidUI", formatted, error);
-        try { Api101Bridge.log(formatted, error); } catch (Throwable ignored) {}
+        try {
+            Api101Bridge.log(LiquidUiLog.format(TAG + " " + message), error);
+        } catch (Throwable ignored) {
+            android.util.Log.e("LiquidUI", "[LUI]" + TAG + " " + message, error);
+        }
     }
 }
