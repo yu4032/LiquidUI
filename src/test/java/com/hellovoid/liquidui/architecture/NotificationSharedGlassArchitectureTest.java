@@ -127,6 +127,21 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
+    public void sceneRefreshDoesNotAddAnotherAnimationFrameAndCoalescesGpuDraws() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        int start = renderer.indexOf("void requestSceneRefresh()");
+        int end = renderer.indexOf("void setProducerUpdatesEnabled", start);
+        assertTrue(start >= 0 && end > start);
+        String refresh = renderer.substring(start, end);
+
+        assertFalse(refresh.contains("postOnAnimation"));
+        assertTrue(refresh.contains("updateBackdropMapping()"));
+        assertTrue(refresh.contains("scheduleDraw(false)"));
+        assertTrue(renderer.contains("AtomicBoolean drawScheduled"));
+        assertTrue(renderer.contains("scheduleDraw(true)"));
+    }
+
+    @Test
     public void validatedBackdropMappingPreservesSurfaceTextureCropAndCorrectsRotation() throws Exception {
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
         String shaders = read("src/main/java/com/hellovoid/liquidui/glass/notification/Miuix307PassBlurShaders.java");
@@ -144,12 +159,13 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
-    public void sharedRendererUsesQuarterScaleZeroCopyPassBlurAndPrismal() throws Exception {
+    public void sharedRendererUsesFullScaleZeroCopyPassBlurAndPrismal() throws Exception {
         String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
         String compositor = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassCompositor.java");
 
-        assertTrue(bridge.contains("SCALE = 0.25f"));
+        assertTrue(bridge.contains("SCALE = 1.0f"));
+        assertFalse(bridge.contains("SCALE = 0.25f"));
         assertTrue(bridge.contains("setUpdateTextureFlag"));
         assertTrue(bridge.contains("SetPassBlurSurface"));
         assertTrue(renderer.contains("GL_TEXTURE_EXTERNAL_OES"));
