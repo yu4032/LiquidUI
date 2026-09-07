@@ -40,6 +40,22 @@ public class NotificationGlassPresentationStateContractTest {
     }
 
     @Test
+    public void lateFreshFrameCannotResurrectLostGeneration() {
+        NotificationGlassPresentationState state = new NotificationGlassPresentationState();
+        state.sourceBound(5L);
+        state.scene(9L, 2);
+        state.sourceLost(5L);
+
+        state.freshFrame(5L);
+        NotificationGlassPresentationState.ActivationToken late =
+                state.swapSucceeded(5L, 9L, 1L);
+
+        assertNull(late);
+        assertFalse(state.isGlassActive());
+        assertEquals(NotificationGlassPresentationState.Phase.SOURCE_LOST, state.phase());
+    }
+
+    @Test
     public void staleSourceOrSceneCannotActivate() {
         NotificationGlassPresentationState state = new NotificationGlassPresentationState();
         state.sourceBound(9L);
