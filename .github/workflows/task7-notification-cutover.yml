@@ -93,6 +93,23 @@ jobs:
               '            // with the Window-shared adapter. No standalone GpuStream probe is instantiated.\n',
               'hook ownership comment')
 
+          dormant_hook = 'src/main/java/com/hellovoid/liquidui/glass/notification/NotificationLiquidGlassHook.java'
+          replace_once(
+              dormant_hook,
+              '        final NotificationGpuPassBlurStreamProbe streamProbe;\n',
+              '',
+              'dormant probe field')
+          replace_once(
+              dormant_hook,
+              '            streamProbe = new NotificationGpuPassBlurStreamProbe();\n\n',
+              '',
+              'dormant probe construction')
+          replace_once(
+              dormant_hook,
+              '                            streamProbe.observe(target);\n',
+              '',
+              'dormant probe observation')
+
           renderer = Path('src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java')
           source = renderer.read_text()
           replacements = {
@@ -162,6 +179,7 @@ jobs:
           grep -q 'SystemUiGlassCore glassCore' "$NOTIF/NotificationSharedGlassHook.java"
           grep -q 'glassCore, stackClass, collector' "$NOTIF/NotificationSharedGlassHook.java"
           ! grep -R -n 'NotificationGlassSession' "$NOTIF"
+          ! grep -R -n 'NotificationGpuPassBlurStreamProbe' "$NOTIF"
           git diff --check
 
       - name: Commit verified cutover
