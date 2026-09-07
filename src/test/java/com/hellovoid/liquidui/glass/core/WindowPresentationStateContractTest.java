@@ -38,6 +38,28 @@ public class WindowPresentationStateContractTest {
     }
 
     @Test
+    public void styleVersionRolloverRevokesOldVisualWithoutLosingFreshSource() {
+        WindowPresentationState state = freshState(10L, 20L, Map.of("card", 7L));
+        assertEquals(Set.of("card"), state.accept(token(
+                10L, 20L, 1L, 1L, Map.of("card", 7L))));
+        assertEquals(WindowPresentationState.Phase.GLASS_ACTIVE, state.phase());
+
+        assertEquals(Set.of("card"), state.styleVersion(2L));
+        assertEquals(WindowPresentationState.Phase.SOURCE_FRESH, state.phase());
+        assertEquals(20L, state.producerGeneration());
+
+        assertTrue(state.accept(tokenWithProfile(
+                10L, 20L, 1L, 1L, 2L, Map.of("card", 7L))).isEmpty());
+        assertEquals(Set.of("card"), state.accept(tokenWithProfile(
+                10L, 20L, 1L, 2L, 3L, Map.of("card", 7L))));
+        assertEquals(WindowPresentationState.Phase.GLASS_ACTIVE, state.phase());
+
+        assertTrue(state.styleVersion(1L).isEmpty());
+        assertTrue(state.accept(tokenWithProfile(
+                10L, 20L, 1L, 1L, 4L, Map.of("card", 7L))).isEmpty());
+    }
+
+    @Test
     public void sourceLossRevokesEveryPresentedNode() {
         WindowPresentationState state = freshState(
                 4L, 6L, Map.of("a", 1L, "b", 2L));
@@ -67,11 +89,22 @@ public class WindowPresentationStateContractTest {
             long sceneGeneration,
             long swapSequence,
             Map<String, Long> nodes) {
+        return tokenWithProfile(
+                rootGeneration, producerGeneration, sceneGeneration, 1L, swapSequence, nodes);
+    }
+
+    private static GlassActivationToken tokenWithProfile(
+            long rootGeneration,
+            long producerGeneration,
+            long sceneGeneration,
+            long profileVersion,
+            long swapSequence,
+            Map<String, Long> nodes) {
         return new GlassActivationToken(
                 rootGeneration,
                 producerGeneration,
                 sceneGeneration,
-                1L,
+                profileVersion,
                 swapSequence,
                 nodes);
     }
