@@ -2,10 +2,6 @@ package com.hellovoid.liquidui.glass.notification;
 
 /** Shader sources that adapt the HyperOS PassBlur external-OES producer into Prismal's 2D domain. */
 final class Miuix307PassBlurShaders {
-    // Temporary GPU-only visual probe. The normalized texture is split into three equal panels:
-    // raw OES UV, SurfaceTexture matrix only, and the current Stage-B mapping.
-    static final boolean MAPPING_PROBE_ENABLED = true;
-
     static final String QUAD_VERTEX = """
             attribute vec2 aPosition;
             attribute vec2 aUv;
@@ -29,6 +25,9 @@ final class Miuix307PassBlurShaders {
 
             vec2 orientRootUv(vec2 rootUv) {
                 if (uConfigRot == 1) {
+                    // HyperOS ROTATION_90 producer pixels appear visually clockwise when sampled
+                    // with the SurfaceTexture matrix alone. Rotate sampling coordinates clockwise
+                    // to produce the inverse (counter-clockwise) visual correction.
                     return vec2(rootUv.y, 1.0 - rootUv.x);
                 } else if (uConfigRot == 2) {
                     return vec2(1.0 - rootUv.x, 1.0 - rootUv.y);
@@ -59,70 +58,16 @@ final class Miuix307PassBlurShaders {
                         mirrorIntoValidRange(uv.y, uValidDockRect.y, uValidDockRect.w));
             }
 
-            vec2 compensateSurfaceTextureCropPreservingOrientation(vec2 orientedUv) {
-                vec2 column0 = vec2(uTexMatrix[0][0], uTexMatrix[0][1]);
-                vec2 column1 = vec2(uTexMatrix[1][0], uTexMatrix[1][1]);
-                float scale0 = length(column0);
-                float scale1 = length(column1);
-                float a00 = uTexMatrix[0][0];
-                float a01 = uTexMatrix[1][0];
-                float a10 = uTexMatrix[0][1];
-                float a11 = uTexMatrix[1][1];
-                float determinant = a00 * a11 - a01 * a10;
-                if (scale0 <= 0.000001 || scale1 <= 0.000001 || abs(determinant) <= 0.000001) {
-                    return orientedUv;
-                }
-
-                vec2 orientation0 = column0 / scale0;
-                vec2 orientation1 = column1 / scale1;
-                if (abs(dot(orientation0, orientation1)) > 0.001) return orientedUv;
-
-                vec2 orientationBias = vec2(
-                        -min(0.0, orientation0.x) - min(0.0, orientation1.x),
-                        -min(0.0, orientation0.y) - min(0.0, orientation1.y));
-                vec2 desired = orientation0 * orientedUv.x
-                        + orientation1 * orientedUv.y + orientationBias;
-                vec2 translation = vec2(uTexMatrix[3][0], uTexMatrix[3][1]);
-                vec2 rhs = desired - translation;
-                return vec2(
-                        (a11 * rhs.x - a01 * rhs.y) / determinant,
-                        (-a10 * rhs.x + a00 * rhs.y) / determinant);
-            }
-
-            vec2 currentStageBUv(vec2 localUv) {
-                vec2 sampleDockUv = mirrorDockUv(localUv);
+            void main() {
+                vec2 sampleDockUv = mirrorDockUv(vUv);
                 vec2 rootUv = uBackdropRect.xy + sampleDockUv * uBackdropRect.zw;
                 vec2 orientedUv = orientRootUv(rootUv);
-                vec2 textureInputUv =
-                        compensateSurfaceTextureCropPreservingOrientation(orientedUv);
-                return (uTexMatrix * vec4(textureInputUv, 0.0, 1.0)).xy;
-            }
 
-            void main() {
-                vec2 panelUv;
-                vec4 sampled;
-                if (vUv.x < 0.333333) {
-                    panelUv = vec2(vUv.x * 3.0, vUv.y);
-                    vec2 rawUv = panelUv;
-                    sampled = texture2D(uTexture, rawUv);
-                } else if (vUv.x < 0.666667) {
-                    panelUv = vec2((vUv.x - 0.333333) * 3.0, vUv.y);
-                    vec2 matrixUv = (uTexMatrix * vec4(panelUv, 0.0, 1.0)).xy;
-                    sampled = texture2D(uTexture, matrixUv);
-                } else {
-                    panelUv = vec2((vUv.x - 0.666667) * 3.0, vUv.y);
-                    vec2 stageBUv = currentStageBUv(panelUv);
-                    sampled = texture2D(uTexture, stageBUv);
-                }
-
-                // Force opaque output so an alpha mismatch cannot disguise valid producer RGB.
-                if (abs(vUv.x - 0.333333) < 0.0025) {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-                } else if (abs(vUv.x - 0.666667) < 0.0025) {
-                    gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
-                } else {
-                    gl_FragColor = vec4(sampled.rgb, 1.0);
-                }
+                // SurfaceTexture owns the vendor crop/flip/quarter-scale transform. Do not invert
+                // or normalize its ~0.25 scale: doing so samples outside the valid PassBlur tile.
+                vec2 textureUv = (uTexMatrix * vec4(orientedUv, 0.0, 1.0)).xy;
+                vec4 sampled = texture2D(uTexture, textureUv);
+                gl_FragColor = vec4(sampled.rgb, 1.0);
             }
             """;
 
