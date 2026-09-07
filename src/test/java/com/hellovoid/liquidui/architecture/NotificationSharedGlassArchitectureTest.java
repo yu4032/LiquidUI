@@ -69,7 +69,7 @@ public class NotificationSharedGlassArchitectureTest {
         assertTrue(observer.contains("surfaceCreated"));
         assertTrue(observer.contains("surfaceReplaced"));
         assertTrue(observer.contains("host.post(() -> listener.onSurfaceReady(name))"));
-        assertFalse(observer.contains("SetPassBlurSurface"));
+        assertFalse(observer.contains("SystemUiPassBlurBridge.bind("));
         assertFalse(observer.contains("SurfaceControl.Transaction transaction"));
         assertTrue(session.contains("revokeSharedPresentation(\"root-surface-destroyed\")"));
         assertTrue(session.contains("renderer.rebindProducer(\"root-\" + event)"));
