@@ -9,6 +9,7 @@ import com.hellovoid.liquidui.config.GlassStyleConfig;
 import com.hellovoid.liquidui.config.LiquidUiConfig;
 import com.hellovoid.liquidui.diagnostics.BootstrapDiagnosticsPolicy;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
+import com.hellovoid.liquidui.glass.controlcenter.ControlCenterGlassHook;
 import com.hellovoid.liquidui.glass.core.SystemUiGlassCore;
 import com.hellovoid.liquidui.glass.core.WindowGlassSession;
 import com.hellovoid.liquidui.glass.notification.NotificationSharedGlassHook;
@@ -95,7 +96,10 @@ public final class ModuleMain extends XposedModule {
                             new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
                             new Api101ArgumentRewriteHookBackend(config.diagnosticsEnabled()),
                             processGlassCore,
-                            config.notificationGlassEnabled())));
+                            config.notificationGlassEnabled()),
+                    new ControlCenterGlassHook(
+                            new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
+                            processGlassCore)));
             HookRegistryReport report = hookRegistry.installAll(classLoader, resolution.profile());
             if (report.hasFailures()) {
                 closeGlassConfigRuntime();
