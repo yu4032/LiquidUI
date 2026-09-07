@@ -10,9 +10,10 @@ public class NotificationHookRegistrationArchitectureTest {
             Path.of("src/main/java/com/hellovoid/liquidui/ModuleMain.java");
 
     @Test
-    public void moduleMainRegistersMaterialAuthorityHookWithBeforeAfterAndRewriteBackends() throws Exception {
+    public void moduleMainRegistersSharedGlassHookWithBeforeAfterAndRewriteBackends() throws Exception {
         String source = Files.readString(MODULE_MAIN);
-        assertTrue(source.contains("NotificationLiquidGlassHook"));
+        assertTrue(source.contains("NotificationSharedGlassHook"));
+        assertFalse(source.contains("new NotificationLiquidGlassHook"));
         assertTrue(source.contains("Api101BeforeMethodHookBackend"));
         assertTrue(source.contains("Api101AfterMethodHookBackend"));
         assertTrue(source.contains("Api101ArgumentRewriteHookBackend"));
