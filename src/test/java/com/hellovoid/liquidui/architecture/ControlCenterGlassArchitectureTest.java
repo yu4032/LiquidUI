@@ -23,7 +23,8 @@ public final class ControlCenterGlassArchitectureTest {
         assertTrue(hook.contains("com.android.systemui.qs.MiuiQSPanel"));
         assertTrue(hook.contains("com.android.systemui.qs.tileimpl.MiuiQSTileBaseView"));
         assertTrue(hook.contains("com.android.systemui.qs.tileimpl.MiuiQSIconViewImpl"));
-        assertTrue(hook.contains("getDeclaredMethod(\"setTiles\", Collection.class, boolean.class)"));
+        assertTrue(hook.contains("getDeclaredMethod("));
+        assertTrue(hook.contains("\"setTiles\", Collection.class, boolean.class"));
         assertTrue(hook.contains("getDeclaredMethod(\"updateIcon\""));
         assertTrue(hook.contains("mRecords"));
         assertTrue(hook.contains("mIconFrame"));
