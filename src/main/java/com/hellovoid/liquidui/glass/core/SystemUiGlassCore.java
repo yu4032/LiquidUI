@@ -2,6 +2,8 @@ package com.hellovoid.liquidui.glass.core;
 
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.view.Display;
+import android.view.View;
 
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -35,6 +37,23 @@ public final class SystemUiGlassCore implements AutoCloseable {
         windows = new WindowGlassRegistry(Objects.requireNonNull(sessionFactory, "sessionFactory"));
         renderThread = null;
         renderHandler = null;
+    }
+
+    /** Resolve any attached component View to one ViewRoot/display session, never to the component. */
+    public WindowGlassSession sessionFor(View host) {
+        Objects.requireNonNull(host, "host");
+        if (closed.get()) throw new IllegalStateException("core closed");
+        Object root = null;
+        try {
+            root = SystemUiPassBlurBridge.getViewRootImpl(host);
+        } catch (Throwable ignored) {
+            // Fall through to the root View identity. This is still Window-scoped for one attach.
+        }
+        if (root == null) root = host.getRootView();
+        if (root == null) throw new IllegalStateException("Window root unavailable");
+        Display display = host.getDisplay();
+        int displayId = display != null ? display.getDisplayId() : Display.DEFAULT_DISPLAY;
+        return sessionFor(root, displayId);
     }
 
     public WindowGlassSession sessionFor(Object root, int displayId) {
