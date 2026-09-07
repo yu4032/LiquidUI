@@ -13,11 +13,14 @@ import android.os.HandlerThread;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.Surface;
+import android.view.SurfaceControl;
 import android.view.View;
 
 import com.hellovoid.liquidui.Api101Bridge;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.Locale;
 
 /**
@@ -25,8 +28,9 @@ import java.util.Locale;
  *
  * A single process-lifetime EGL consumer owns one external-OES SurfaceTexture. Its producer Surface
  * is handed to SurfaceFlinger through the exact hidden SetPassBlurSurface contract already used by
- * HyperOS. Ordinary observe/resume never recreates the BufferQueue; only a changed ViewRoot causes
- * the same producer to be rebound. Frame callbacks are drained with updateTexImage on the EGL
+ * HyperOS. Ordinary observe/resume never recreates the BufferQueue. ViewRootImpl's exact
+ * SurfaceChangedCallback authority is used to move that same producer to a replacement root in the
+ * root's own SurfaceControl.Transaction. Frame callbacks are drained with updateTexImage on the EGL
  * thread so an increasing counter proves a live GPU stream before any optical renderer is enabled.
  */
 final class NotificationGpuPassBlurStreamProbe {
@@ -41,6 +45,13 @@ final class NotificationGpuPassBlurStreamProbe {
     private volatile SystemUiPassBlurBridge.Binding binding;
     private volatile boolean initializationPosted;
 
+    // ViewRoot surface lifecycle observer. Kept separate from the producer so root rollover never
+    // recreates the SurfaceTexture/BufferQueue.
+    private volatile Object observedViewRoot;
+    private volatile Object surfaceChangedCallback;
+    private volatile Method removeSurfaceChangedCallback;
+    private volatile View observedRootHost;
+
     private EGLDisplay eglDisplay = EGL14.EGL_NO_DISPLAY;
     private EGLContext eglContext = EGL14.EGL_NO_CONTEXT;
     private EGLSurface eglSurface = EGL14.EGL_NO_SURFACE;
@@ -53,14 +64,17 @@ final class NotificationGpuPassBlurStreamProbe {
     void observe(View target) {
         if (target == null) return;
 
-        if (!target.isAttachedToWindow()) {
+        View rootHost = rootHost(target);
+        if (!rootHost.isAttachedToWindow()) {
             target.post(() -> observe(target));
             return;
         }
 
+        ensureSurfaceRolloverObserver(rootHost);
+
         if (binding != null && binding.bound && binding.hostRootSurface.isValid()) {
             try {
-                Object currentViewRoot = SystemUiPassBlurBridge.getViewRootImpl(target);
+                Object currentViewRoot = SystemUiPassBlurBridge.getViewRootImpl(rootHost);
                 if (currentViewRoot != null
                         && System.identityHashCode(currentViewRoot) == binding.viewRootIdentity) {
                     SystemUiPassBlurBridge.resumeUpdates(binding);
@@ -75,15 +89,15 @@ final class NotificationGpuPassBlurStreamProbe {
 
         Surface readySurface = producerSurface;
         if (readySurface != null && readySurface.isValid()) {
-            bindProducer(target, readySurface);
+            bindProducer(rootHost, readySurface);
             return;
         }
 
         if (initializationPosted) return;
         initializationPosted = true;
 
-        int rootWidth = target.getRootView() == null ? 0 : target.getRootView().getWidth();
-        int rootHeight = target.getRootView() == null ? 0 : target.getRootView().getHeight();
+        int rootWidth = rootHost.getWidth();
+        int rootHeight = rootHost.getHeight();
         DisplayMetrics metrics = target.getResources().getDisplayMetrics();
         if (rootWidth <= 0) rootWidth = metrics.widthPixels;
         if (rootHeight <= 0) rootHeight = metrics.heightPixels;
@@ -93,10 +107,141 @@ final class NotificationGpuPassBlurStreamProbe {
         gpuThread.start();
         Handler handler = new Handler(gpuThread.getLooper());
         gpuHandler = handler;
-        handler.post(() -> initializeGpuConsumer(target, sourceWidth, sourceHeight));
+        handler.post(() -> initializeGpuConsumer(rootHost, sourceWidth, sourceHeight));
     }
 
-    private void initializeGpuConsumer(View target, int sourceWidth, int sourceHeight) {
+    private void ensureSurfaceRolloverObserver(View rootHost) {
+        try {
+            Object viewRoot = SystemUiPassBlurBridge.getViewRootImpl(rootHost);
+            if (viewRoot == null) return;
+            if (viewRoot == observedViewRoot && surfaceChangedCallback != null) return;
+
+            removePreviousSurfaceRolloverObserver();
+
+            Class<?> callbackType = findSurfaceChangedCallbackType(viewRoot.getClass());
+            Method addCallback = viewRoot.getClass().getMethod(
+                    "addSurfaceChangedCallback", callbackType);
+            Method removeCallback = viewRoot.getClass().getMethod(
+                    "removeSurfaceChangedCallback", callbackType);
+
+            Object callback = Proxy.newProxyInstance(
+                    callbackType.getClassLoader(),
+                    new Class<?>[]{callbackType},
+                    (proxy, method, args) -> {
+                        String name = method.getName();
+                        if (method.getDeclaringClass() == Object.class) {
+                            if ("toString".equals(name)) return TAG + "-SurfaceChangedCallback";
+                            if ("hashCode".equals(name)) return System.identityHashCode(proxy);
+                            if ("equals".equals(name)) {
+                                return args != null && args.length == 1 && proxy == args[0];
+                            }
+                            return null;
+                        }
+                        if (("surfaceCreated".equals(name) || "surfaceReplaced".equals(name))
+                                && args != null && args.length > 0
+                                && args[0] instanceof SurfaceControl.Transaction transaction) {
+                            onRootSurfaceAvailable(rootHost, viewRoot, transaction, name);
+                        } else if ("surfaceDestroyed".equals(name)) {
+                            onRootSurfaceDestroyed(viewRoot);
+                        }
+                        return null;
+                    });
+
+            addCallback.invoke(viewRoot, callback);
+            observedViewRoot = viewRoot;
+            surfaceChangedCallback = callback;
+            removeSurfaceChangedCallback = removeCallback;
+            observedRootHost = rootHost;
+            log("surface rollover observer attached viewRoot="
+                    + System.identityHashCode(viewRoot));
+        } catch (Throwable error) {
+            logError("surface rollover observer unavailable", error);
+        }
+    }
+
+    private void removePreviousSurfaceRolloverObserver() {
+        Object previousViewRoot = observedViewRoot;
+        Object previousCallback = surfaceChangedCallback;
+        Method previousRemove = removeSurfaceChangedCallback;
+        observedViewRoot = null;
+        surfaceChangedCallback = null;
+        removeSurfaceChangedCallback = null;
+        observedRootHost = null;
+        if (previousViewRoot == null || previousCallback == null || previousRemove == null) return;
+        try {
+            previousRemove.invoke(previousViewRoot, previousCallback);
+        } catch (Throwable error) {
+            log("surface rollover observer remove skipped " + error);
+        }
+    }
+
+    private void onRootSurfaceDestroyed(Object expectedViewRoot) {
+        if (expectedViewRoot == null || expectedViewRoot != observedViewRoot) return;
+        SystemUiPassBlurBridge.Binding current = binding;
+        if (current != null) {
+            SystemUiPassBlurBridge.invalidate(current);
+            binding = null;
+            log("root surface destroyed endpointGen=" + current.endpointGeneration
+                    + " producerPreserved=true");
+        }
+    }
+
+    private void onRootSurfaceAvailable(
+            View rootHost,
+            Object expectedViewRoot,
+            SurfaceControl.Transaction transaction,
+            String event) {
+        if (expectedViewRoot == null || expectedViewRoot != observedViewRoot) return;
+        Surface surface = producerSurface;
+        if (surface == null || !surface.isValid()) {
+            log("root surface " + event + " before gpu consumer ready");
+            return;
+        }
+
+        SystemUiPassBlurBridge.Binding current = binding;
+        if (current != null) {
+            SystemUiPassBlurBridge.invalidate(current);
+            binding = null;
+        }
+
+        long nextGeneration = endpointGeneration + 1;
+        SystemUiPassBlurBridge.Binding next = SystemUiPassBlurBridge.bindInTransaction(
+                rootHost, surface, nextGeneration, transaction);
+        if (next != null) {
+            binding = next;
+            endpointGeneration = next.endpointGeneration;
+            log("SF source rebound event=" + event
+                    + " scale=" + SOURCE_SCALE
+                    + " endpointGen=" + next.endpointGeneration
+                    + " rootLayer=" + next.rootLayerId
+                    + " surfaceSeq=" + next.surfaceSequenceId
+                    + " producerPreserved=true");
+        } else {
+            log("SF source rollover bind deferred event=" + event
+                    + " candidateGen=" + nextGeneration);
+        }
+    }
+
+    private static Class<?> findSurfaceChangedCallbackType(Class<?> viewRootType)
+            throws NoSuchMethodException {
+        Class<?> current = viewRootType;
+        while (current != null) {
+            for (Class<?> nested : current.getDeclaredClasses()) {
+                if ("SurfaceChangedCallback".equals(nested.getSimpleName())) {
+                    return nested;
+                }
+            }
+            current = current.getSuperclass();
+        }
+        throw new NoSuchMethodException(viewRootType.getName() + "$SurfaceChangedCallback");
+    }
+
+    private static View rootHost(View target) {
+        View root = target.getRootView();
+        return root == null ? target : root;
+    }
+
+    private void initializeGpuConsumer(View rootHost, int sourceWidth, int sourceHeight) {
         try {
             initializeEgl();
 
@@ -130,23 +275,25 @@ final class NotificationGpuPassBlurStreamProbe {
                     + " buffer=" + bufferWidth + "x" + bufferHeight
                     + " scale=" + SOURCE_SCALE);
 
-            target.post(() -> bindProducer(target, surface));
+            rootHost.post(() -> bindProducer(rootHost, surface));
         } catch (Throwable error) {
             logError("gpu consumer init failed", error);
         }
     }
 
-    private void bindProducer(View target, Surface surface) {
-        if (target == null || surface == null || !surface.isValid()) return;
-        if (!target.isAttachedToWindow()) {
-            target.post(() -> bindProducer(target, surface));
+    private void bindProducer(View rootHost, Surface surface) {
+        if (rootHost == null || surface == null || !surface.isValid()) return;
+        if (!rootHost.isAttachedToWindow()) {
+            rootHost.post(() -> bindProducer(rootHost, surface));
             return;
         }
+
+        ensureSurfaceRolloverObserver(rootHost);
 
         SystemUiPassBlurBridge.Binding current = binding;
         if (current != null && current.bound && current.hostRootSurface.isValid()) {
             try {
-                Object currentViewRoot = SystemUiPassBlurBridge.getViewRootImpl(target);
+                Object currentViewRoot = SystemUiPassBlurBridge.getViewRootImpl(rootHost);
                 if (currentViewRoot != null
                         && System.identityHashCode(currentViewRoot) == current.viewRootIdentity) {
                     SystemUiPassBlurBridge.resumeUpdates(current);
@@ -154,18 +301,21 @@ final class NotificationGpuPassBlurStreamProbe {
                 }
             } catch (Throwable ignored) {}
             SystemUiPassBlurBridge.unbind(current);
+            binding = null;
         }
 
+        long nextGeneration = endpointGeneration + 1;
         SystemUiPassBlurBridge.Binding next = SystemUiPassBlurBridge.bind(
-                target, surface, ++endpointGeneration);
-        binding = next;
+                rootHost, surface, nextGeneration);
         if (next != null) {
+            binding = next;
+            endpointGeneration = next.endpointGeneration;
             log("SF source bound scale=" + SOURCE_SCALE
                     + " endpointGen=" + next.endpointGeneration
                     + " rootLayer=" + next.rootLayerId
                     + " surfaceSeq=" + next.surfaceSequenceId);
         } else {
-            log("SF source bind deferred endpointGen=" + endpointGeneration);
+            log("SF source bind deferred candidateGen=" + nextGeneration);
         }
     }
 
