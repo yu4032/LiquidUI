@@ -303,6 +303,15 @@ final class NotificationPassBlurTextureView extends TextureView
         return producerRecovery.isActivationExhausted();
     }
 
+    void requestActivationRetry() {
+        if (shuttingDown) return;
+        renderHandler.post(() -> {
+            if (shuttingDown) return;
+            firstDrawLogged = false;
+            if (producerRecovery.hasFreshFrame()) drawLatestFrame(false);
+        });
+    }
+
     void requestSceneRefresh() {
         if (shuttingDown) return;
         postOnAnimation(() -> {
