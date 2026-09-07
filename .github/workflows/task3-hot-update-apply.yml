@@ -2,14 +2,15 @@ name: Task3 hot update apply
 
 on:
   push:
-    branches: [ feature/systemui-glass-customization ]
+    branches:
+      - feature/systemui-glass-customization
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'ci: apply Task3 hot update'
+    if: startsWith(github.event.head_commit.message, 'ci-apply-task3')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,35 +29,37 @@ jobs:
           assert 'import com.hellovoid.liquidui.config.GlassStyleConfig;' not in s
           s = s.replace(old, new, 1)
 
-          needle = '''    void requestScene() {
-'''
+          needle = '    void requestScene() {\n'
           method = '''    void updateGlassStyles(GlassStyleConfig style, long version) {
-        if (shuttingDown || style == null) return;
-        if (!materialProfiles.update(style, version)) return;
+              if (shuttingDown || style == null) return;
+              if (!materialProfiles.update(style, version)) return;
 
-        portablePrismalParams = materialProfiles.paramsFor(GlassMaterialProfile.CARD);
-        if (style.samplingAutoEnabled()) {
-            topSamplingExtraPx = style.samplingExtraTopPx();
-            bottomSamplingExtraPx = style.samplingExtraBottomPx();
-            leftSamplingExtraPx = style.samplingExtraLeftPx();
-            rightSamplingExtraPx = style.samplingExtraRightPx();
-        } else {
-            topSamplingExtraPx = Integer.MIN_VALUE;
-            bottomSamplingExtraPx = Integer.MIN_VALUE;
-            leftSamplingExtraPx = Integer.MIN_VALUE;
-            rightSamplingExtraPx = Integer.MIN_VALUE;
-        }
+              portablePrismalParams = materialProfiles.paramsFor(GlassMaterialProfile.CARD);
+              if (style.samplingAutoEnabled()) {
+                  topSamplingExtraPx = style.samplingExtraTopPx();
+                  bottomSamplingExtraPx = style.samplingExtraBottomPx();
+                  leftSamplingExtraPx = style.samplingExtraLeftPx();
+                  rightSamplingExtraPx = style.samplingExtraRightPx();
+              } else {
+                  topSamplingExtraPx = Integer.MIN_VALUE;
+                  bottomSamplingExtraPx = Integer.MIN_VALUE;
+                  leftSamplingExtraPx = Integer.MIN_VALUE;
+                  rightSamplingExtraPx = Integer.MIN_VALUE;
+              }
 
-        Set<String> revoked = presentationState.styleVersion(version);
-        dispatchPresentation(Set.of(), revoked);
-        preparedBackdropReady = false;
-        preparedBackdropSnapshot = null;
-        updateBackdropMapping();
-        frameCoordinator.requestScene();
-    }
+              Set<String> revoked = presentationState.styleVersion(version);
+              dispatchPresentation(Set.of(), revoked);
+              preparedBackdropReady = false;
+              preparedBackdropSnapshot = null;
+              updateBackdropMapping();
+              frameCoordinator.requestScene();
+          }
 
-    void requestScene() {
-'''
+          void requestScene() {
+          '''
+          # Restore Java indentation after using a YAML-friendly multiline literal.
+          method = '\n'.join(('    ' + line if line and not line.startswith('    ') else line) for line in method.split('\n'))
+          method = method.replace('          void requestScene() {', '    void requestScene() {')
           assert s.count(needle) == 1
           assert 'void updateGlassStyles(GlassStyleConfig style, long version)' not in s
           s = s.replace(needle, method, 1)
