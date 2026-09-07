@@ -187,16 +187,14 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
-    public void topBottomRadiusAuthorityRemainsOnRowRoundness() throws Exception {
+    public void sharedGlassRadiusUsesNativeCardResourceNotTransientRowRoundness() throws Exception {
         String collector = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java");
         String registry = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationMaterialTargetRegistry.java");
 
-        assertTrue(collector.contains("topCornerRadius.invoke(rowObject)"));
-        assertTrue(collector.contains("bottomCornerRadius.invoke(rowObject)"));
-        assertFalse(collector.contains("roundState.topRounded()"));
-        assertFalse(collector.contains("roundState.bottomRounded()"));
-        assertFalse(registry.contains("topRounded"));
-        assertFalse(registry.contains("bottomRounded"));
+        assertTrue(collector.contains("notification_item_bg_radius"));
+        assertTrue(collector.contains("nativeCardRadiusPx(background)"));
+        assertFalse(collector.contains("topCornerRadius.invoke(rowObject)"));
+        assertFalse(collector.contains("bottomCornerRadius.invoke(rowObject)"));
         assertTrue(registry.contains("OutlineState"));
         assertTrue(registry.contains("useActualHeightGeometry"));
         assertTrue(registry.contains("useFlipRadius"));
