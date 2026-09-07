@@ -7,9 +7,11 @@ import com.hellovoid.liquidui.config.ConfigReader;
 import com.hellovoid.liquidui.config.LiquidUiConfig;
 import com.hellovoid.liquidui.diagnostics.BootstrapDiagnosticsPolicy;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
+import com.hellovoid.liquidui.glass.core.SystemUiGlassCore;
+import com.hellovoid.liquidui.glass.core.WindowGlassSession;
+import com.hellovoid.liquidui.glass.notification.NotificationSharedGlassHook;
 import com.hellovoid.liquidui.hook.HookRegistryReport;
 import com.hellovoid.liquidui.hook.SystemUiHookRegistry;
-import com.hellovoid.liquidui.glass.notification.NotificationSharedGlassHook;
 import com.hellovoid.liquidui.target.FrameworkPackageVersionReader;
 import com.hellovoid.liquidui.target.SystemUiRuntimeInfo;
 import com.hellovoid.liquidui.target.SystemUiRuntimeInfoProvider;
@@ -31,6 +33,7 @@ public final class ModuleMain extends XposedModule {
     private final SystemUiTargetResolver targetResolver = SystemUiTargetResolver.defaults();
     private final SystemUiRuntimeInfoProvider runtimeInfoProvider =
             new SystemUiRuntimeInfoProvider(FrameworkPackageVersionReader.INSTANCE);
+    private SystemUiGlassCore glassCore;
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
@@ -68,17 +71,32 @@ public final class ModuleMain extends XposedModule {
                 return;
             }
 
+            if (glassCore == null || glassCore.isClosed()) {
+                glassCore = new SystemUiGlassCore(
+                        (key, renderHandler) -> new WindowGlassSession(key, renderHandler));
+            }
+            SystemUiGlassCore processGlassCore = glassCore;
             SystemUiHookRegistry hookRegistry = new SystemUiHookRegistry(List.of(
                     new NotificationSharedGlassHook(
                             new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()),
                             new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
                             new Api101ArgumentRewriteHookBackend(config.diagnosticsEnabled()),
+                            processGlassCore,
                             config.notificationGlassEnabled())));
             HookRegistryReport report = hookRegistry.installAll(classLoader, resolution.profile());
+            if (report.hasFailures()) {
+                processGlassCore.close();
+                if (glassCore == processGlassCore) glassCore = null;
+            }
             Api101Bridge.log(LiquidUiLog.format(
                     BootstrapDiagnosticsPolicy.hookRegistryMessage(
                             resolution.profile(), report, config.diagnosticsEnabled())));
         } catch (Throwable error) {
+            SystemUiGlassCore failedCore = glassCore;
+            glassCore = null;
+            if (failedCore != null) {
+                try { failedCore.close(); } catch (Throwable ignored) {}
+            }
             Api101Bridge.log(LiquidUiLog.format("SystemUI bootstrap FAILED"), error);
         }
     }
