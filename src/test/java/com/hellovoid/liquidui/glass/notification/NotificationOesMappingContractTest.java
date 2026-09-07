@@ -13,9 +13,9 @@ public class NotificationOesMappingContractTest {
     }
 
     @Test
-    public void rendererUsesOneSharedWindowToOesTransformWithoutShaderOffsets() throws Exception {
-        String shader = source("src/main/java/com/hellovoid/liquidui/glass/notification/Miuix307PassBlurShaders.java");
-        String renderer = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+    public void windowRendererUsesOneSharedWindowToOesTransformWithoutShaderOffsets() throws Exception {
+        String shader = source("src/main/java/com/hellovoid/liquidui/glass/core/PassBlurShaders.java");
+        String renderer = source("src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java");
 
         assertTrue(shader.contains("uniform mat4 uWindowUvToOes;"));
         assertTrue(shader.contains("uWindowUvToOes * vec4(vUv, 0.0, 1.0)"));
@@ -31,9 +31,9 @@ public class NotificationOesMappingContractTest {
     }
 
     @Test
-    public void diagnosticProbeIsRemovedAfterMappingDecision() throws Exception {
-        String shader = source("src/main/java/com/hellovoid/liquidui/glass/notification/Miuix307PassBlurShaders.java");
-        String material = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassMaterial.java");
+    public void diagnosticMappingProbeIsAbsentFromProductionCore() throws Exception {
+        String shader = source("src/main/java/com/hellovoid/liquidui/glass/core/PassBlurShaders.java");
+        String material = source("src/main/java/com/hellovoid/liquidui/glass/core/MaterialProfileRegistry.java");
 
         assertFalse(shader.contains("MAPPING_PROBE_ENABLED = true"));
         assertFalse(shader.contains("panelUv"));
