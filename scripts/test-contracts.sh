@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-mkdir -p "$WORK/stubs/org/junit" "$WORK/classes"
+mkdir -p "$WORK/stubs/org/junit" "$WORK/stubs/android/os" "$WORK/classes"
 cat > "$WORK/stubs/org/junit/Test.java" <<'JAVA'
 package org.junit;
 import java.lang.annotation.*;
@@ -21,6 +21,27 @@ public class Assert {
     public static void assertFalse(boolean value) { if (value) throw new AssertionError("expected false"); }
     public static void assertNull(Object value) { if (value != null) throw new AssertionError("expected null but was "+value); }
     public static void assertNotNull(Object value) { if (value == null) throw new AssertionError("expected non-null"); }
+}
+JAVA
+cat > "$WORK/stubs/android/os/Looper.java" <<'JAVA'
+package android.os;
+public final class Looper {}
+JAVA
+cat > "$WORK/stubs/android/os/Handler.java" <<'JAVA'
+package android.os;
+public class Handler {
+    public Handler(Looper looper) {}
+    public boolean post(Runnable command) { command.run(); return true; }
+}
+JAVA
+cat > "$WORK/stubs/android/os/HandlerThread.java" <<'JAVA'
+package android.os;
+public class HandlerThread {
+    private final Looper looper = new Looper();
+    public HandlerThread(String name) {}
+    public void start() {}
+    public Looper getLooper() { return looper; }
+    public boolean quitSafely() { return true; }
 }
 JAVA
 cat > "$WORK/TestRunner.java" <<'JAVA'
@@ -49,18 +70,22 @@ mapfile -t PURE_MAIN < <(
        -name '*.java' -print | sort
 )
 # Phase 0 deliberately moves Android/Prismal-owned Window rendering classes into glass/core.
-# Keep this fast layer dependency-free: compile only core state/model classes that need neither
-# Android SDK nor Prismal. The complete core is still compiled and tested by Gradle below.
+# Keep this fast layer mostly dependency-free: compile core state/model classes plus the process
+# core with tiny android.os stubs. The complete Android/EGL/Prismal core is compiled by Gradle.
 while IFS= read -r f; do
   if ! grep -qE '^import (android\.|com\.hellovoid\.prismal\.)' "$f"; then
     PURE_MAIN+=("$f")
   fi
 done < <(find "$ROOT/src/main/java/com/hellovoid/liquidui/glass/core" -name '*.java' -print | sort)
+PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/core/SystemUiGlassCore.java")
 for f in NotificationGlassNode.java NotificationGlassSceneSnapshot.java NotificationGlassSceneState.java ZeroCopyProducerRecoveryState.java Miuix307BackdropMapping.java NotificationGlassActivityState.java NotificationShadeBlurPolicy.java NotificationPassBlurAuthorityState.java NotificationGlassPresentationState.java; do
   PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/notification/$f")
 done
 mapfile -t TESTS < <(find "$ROOT/src/test/java" -name '*.java' -print | sort)
-javac --release 17 -d "$WORK/classes" "$WORK/stubs/org/junit/Test.java" "$WORK/stubs/org/junit/Assert.java" "$WORK/TestRunner.java" "${PURE_MAIN[@]}" "${TESTS[@]}"
+javac --release 17 -d "$WORK/classes" \
+  "$WORK/stubs/org/junit/Test.java" "$WORK/stubs/org/junit/Assert.java" \
+  "$WORK/stubs/android/os/Looper.java" "$WORK/stubs/android/os/Handler.java" "$WORK/stubs/android/os/HandlerThread.java" \
+  "$WORK/TestRunner.java" "${PURE_MAIN[@]}" "${TESTS[@]}"
 mapfile -t TEST_CLASSES < <(find "$ROOT/src/test/java" -name '*Test.java' -print | sort | sed -e "s#^$ROOT/src/test/java/##" -e 's#/#.#g' -e 's#\.java$##')
 (cd "$ROOT" && java -cp "$WORK/classes" TestRunner "${TEST_CLASSES[@]}")
 test "$(cat "$ROOT/src/main/resources/META-INF/xposed/scope.list")" = "com.android.systemui"
