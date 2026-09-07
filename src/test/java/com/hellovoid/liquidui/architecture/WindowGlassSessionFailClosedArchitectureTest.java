@@ -20,11 +20,16 @@ public final class WindowGlassSessionFailClosedArchitectureTest {
         assertTrue(start >= 0 && end > start);
         String method = source.substring(start, end);
 
-        assertTrue(method.contains("long producerGeneration = presentationState.producerGeneration();"));
-        assertTrue(method.contains("presentationState.sourceLost(producerGeneration)"));
-        assertTrue(method.contains("handleRendererPresentation(Set.of(),"));
-        assertTrue(method.indexOf("presentationState.sourceLost(producerGeneration)")
-                < method.indexOf("renderer.setVendorPassBlurEnabled(enabled, reason)"));
+        int generation = method.indexOf(
+                "long producerGeneration = presentationState.producerGeneration();");
+        int revoke = method.indexOf("presentationState.sourceLost(producerGeneration)");
+        int dispatch = method.indexOf("handleRendererPresentation(");
+        int retire = method.indexOf("renderer.setVendorPassBlurEnabled(enabled, reason)");
+
+        assertTrue(generation >= 0);
+        assertTrue(revoke > generation);
+        assertTrue(dispatch >= 0 && dispatch < retire);
+        assertTrue(revoke < retire);
     }
 
     @Test
