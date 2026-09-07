@@ -29,6 +29,10 @@ final class NotificationGlassCompositor {
             int framebufferHeight,
             int insetLeft,
             int insetTop) {
+        // prepareBackdrop() has already created Prismal's programs for this context. Replace only
+        // the generic Gaussian programs with notification-specific fast copies; optical glass
+        // displacement and RGB dispersion remain upstream Prismal code.
+        NotificationPrismalPerformanceTuner.ensureFastBackdrop(renderer);
         renderer.beginGlassFrame();
         if (scene == null) return;
         for (NotificationGlassNode node : scene.nodes) {
