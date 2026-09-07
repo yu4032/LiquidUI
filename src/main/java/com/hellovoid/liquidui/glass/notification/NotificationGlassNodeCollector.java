@@ -3,6 +3,7 @@ package com.hellovoid.liquidui.glass.notification;
 import android.view.View;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 
 /** Geometry adapter retained for future Prismal pass-texture integration. */
 final class NotificationGlassNodeCollector {
@@ -27,6 +28,8 @@ final class NotificationGlassNodeCollector {
             Field actualHeightField,
             Field clipTopField,
             Field clipBottomField,
+            Method ignoredTopCornerRadius,
+            Method ignoredBottomCornerRadius,
             Field expandRunningField,
             Field expandWidthField,
             Field expandHeightField,
