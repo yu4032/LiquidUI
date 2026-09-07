@@ -127,6 +127,23 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
+    public void blackBackdropProbeComparesRawMatrixAndStageBOnGpu() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        String shaders = read("src/main/java/com/hellovoid/liquidui/glass/notification/Miuix307PassBlurShaders.java");
+
+        assertTrue(renderer.contains("MAPPING_PROBE_ENABLED = true"));
+        assertTrue(renderer.contains("OES_MAPPING_PROBE_FRAGMENT"));
+        assertTrue(renderer.contains("renderMappingProbePass(mapping)"));
+        assertTrue(shaders.contains("vUv.x < 0.333333"));
+        assertTrue(shaders.contains("vUv.x < 0.666667"));
+        assertTrue(shaders.contains("texture2D(uTexture, rawUv)"));
+        assertTrue(shaders.contains("texture2D(uTexture, matrixUv)"));
+        assertTrue(shaders.contains("texture2D(uTexture, stageBUv)"));
+        assertTrue(shaders.contains("vec4(sampled.rgb, 1.0)"));
+        assertFalse(renderer.contains("glReadPixels"));
+    }
+
+    @Test
     public void sharedRendererUsesQuarterScaleZeroCopyPassBlurAndPrismal() throws Exception {
         String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
