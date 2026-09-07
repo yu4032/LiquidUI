@@ -79,6 +79,23 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
+    public void activationCarriesRendererOwnedGenerationAcrossThreadBoundary() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        String session = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+
+        assertTrue(renderer.contains("void onSourceBound(long sourceGeneration)"));
+        assertTrue(renderer.contains("void onFirstFrameActive(\n                long sourceGeneration, long sceneGeneration, long swapSequence)"));
+        assertTrue(renderer.contains("activationListener.onSourceBound(endpointGeneration)"));
+        assertTrue(renderer.contains("activationListener.onFirstFrameActive(\n                                activationSourceGeneration,\n                                activationSceneGeneration,\n                                activationSwapSequence)"));
+        assertTrue(session.contains("onSourceBound(long generation)"));
+        assertTrue(session.contains("presentationState.sourceBound(generation)"));
+        assertTrue(session.contains("onFirstFrameActive(\n            long sourceGeneration, long sceneGeneration, long swapSequence)"));
+        assertTrue(session.contains("presentationState.freshFrame(sourceGeneration)"));
+        assertTrue(session.contains("presentationState.swapSucceeded(\n                        sourceGeneration, sceneGeneration, swapSequence)"));
+        assertFalse(session.contains("sourceGeneration++"));
+    }
+
+    @Test
     public void sharedRendererUsesQuarterScaleZeroCopyPassBlurAndPrismal() throws Exception {
         String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
