@@ -25,6 +25,8 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
     private final NotificationPassBlurAuthorityState authorityState;
     private final NotificationPassBlurAuthorityState.Listener authorityListener;
     private final NotificationGlassSceneState sceneState = new NotificationGlassSceneState();
+    private final NotificationGlassPresentationState presentationState =
+            new NotificationGlassPresentationState();
     private final WeakHashMap<Object, Boolean> rows = new WeakHashMap<>();
     private final WeakHashMap<Object, Boolean> wrappers = new WeakHashMap<>();
     private final NotificationGlassHostView host;
@@ -34,6 +36,8 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
     private ViewTreeObserver observer;
     private ViewTreeObserver.OnPreDrawListener preDrawListener;
     private List<NotificationGlassNode> lastNodes = List.of();
+    private long sourceGeneration = 1L;
+    private long swapSequence;
     private boolean active;
     private boolean shutdown;
     private boolean updatesPausedForNoRows;
@@ -53,6 +57,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         this.activityState = activityState;
         this.authorityState = authorityState;
         this.authorityListener = this::onVendorPassBlurChanged;
+        presentationState.sourceBound(sourceGeneration);
 
         host = new NotificationGlassHostView(parent.getContext());
         host.setId(View.generateViewId());
@@ -66,8 +71,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         renderer = new NotificationPassBlurTextureView(
                 parent.getContext(), stack, sceneState, this, authorityState.isEnabled());
         // Keep the TextureView VISIBLE so Android creates and retains its output SurfaceTexture.
-        // Presentation is gated by alpha; a stale frame therefore cannot remain visible while the
-        // input producer generation is lost.
+        // Presentation is gated by alpha; a stale frame cannot remain visible after source loss.
         renderer.setVisibility(View.VISIBLE);
         renderer.setAlpha(0f);
         host.addView(renderer, new FrameLayout.LayoutParams(
@@ -78,11 +82,14 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
                 stack,
                 new NotificationViewRootSurfaceObserver.Listener() {
                     @Override public void onSurfaceDestroyed() {
+                        presentationState.sourceLost(sourceGeneration);
                         revokeSharedPresentation("root-surface-destroyed");
                     }
 
                     @Override public void onSurfaceReady(String event) {
                         if (shutdown) return;
+                        sourceGeneration++;
+                        presentationState.sourceBound(sourceGeneration);
                         renderer.rebindProducer("root-" + event);
                     }
                 });
@@ -93,7 +100,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         log("created stack=" + stack.getClass().getName()
                 + " parent=" + parent.getClass().getName()
                 + " hostIndex=" + stackIndex
-                + " sharedRenderer=true");
+                + " sharedRenderer=true sourceGen=" + sourceGeneration);
     }
 
     boolean isShutdown() { return shutdown; }
@@ -104,7 +111,9 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
     void registerRow(Object row) {
         if (shutdown || row == null) return;
         rows.put(row, Boolean.TRUE);
-        if (active) {
+        if (presentationState.isGlassActive()) {
+            active = true;
+            renderer.setAlpha(1f);
             setShadeBlurSuppression(true);
             materialController.suppressRow(row);
         }
@@ -120,8 +129,13 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         rows.remove(row);
         materialController.restoreRow(row);
         if (rows.isEmpty() && !shutdown) {
-            revokeSharedPresentation("no-visible-rows");
+            active = false;
+            renderer.setAlpha(0f);
+            setShadeBlurSuppression(false);
+            materialController.restoreAll();
             sceneState.clear();
+            NotificationGlassSceneSnapshot empty = sceneState.latest();
+            presentationState.scene(empty.generation, 0);
             lastNodes = List.of();
             renderer.requestSceneRefresh();
             updatesPausedForNoRows = true;
@@ -147,16 +161,31 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
 
     @Override public void onFirstFrameActive() {
         if (shutdown || active || !authorityState.isEnabled() || lastNodes.isEmpty()) return;
+        NotificationGlassSceneSnapshot scene = sceneState.latest();
+        presentationState.freshFrame(sourceGeneration);
+        NotificationGlassPresentationState.ActivationToken token =
+                presentationState.swapSucceeded(
+                        sourceGeneration, scene.generation, ++swapSequence);
+        if (!presentationState.accept(token)) {
+            log("late/stale GPU activation rejected sourceGen=" + sourceGeneration
+                    + " sceneGen=" + scene.generation);
+            return;
+        }
+
         active = true;
         renderer.setAlpha(1f);
         setShadeBlurSuppression(true);
         suppressVendorMaterial();
-        log("shared GPU glass active nodes=" + lastNodes.size());
+        log("shared GPU glass active nodes=" + lastNodes.size()
+                + " sourceGen=" + token.sourceGeneration()
+                + " sceneGen=" + token.sceneGeneration()
+                + " swapSeq=" + token.swapSequence());
         refreshScene();
     }
 
     @Override public void onTerminalFailure(String stage, Throwable error) {
         if (shutdown) return;
+        presentationState.terminalFailure();
         log("terminal failure stage=" + stage + " error=" + error);
         revokeSharedPresentation("renderer-failure-" + stage);
         shutdown("renderer-failure-" + stage);
@@ -164,8 +193,9 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
 
     void shutdown(String reason) {
         if (shutdown) return;
-        shutdown = true;
+        presentationState.terminalFailure();
         revokeSharedPresentation("shutdown-" + reason);
+        shutdown = true;
         authorityState.removeListener(authorityListener);
         rootSurfaceObserver.detach();
         removePreDraw();
@@ -185,16 +215,18 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         if (shutdown) return;
         log("HyperOS notifPassBlur=" + enabled);
         if (!enabled) {
+            presentationState.fallbackNative();
             revokeSharedPresentation("hyperos-notifPassBlur-off");
             renderer.setVendorPassBlurEnabled(false, "hyperos-notifPassBlur");
             return;
         }
+        sourceGeneration++;
+        presentationState.sourceBound(sourceGeneration);
         renderer.setVendorPassBlurEnabled(true, "hyperos-notifPassBlur");
         refreshScene();
     }
 
     private void revokeSharedPresentation(String reason) {
-        if (shutdown && !active) return;
         boolean wasActive = active;
         active = false;
         renderer.setAlpha(0f);
@@ -246,7 +278,8 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         }
         if (!nodes.equals(lastNodes)) {
             lastNodes = List.copyOf(nodes);
-            sceneState.publish(lastNodes);
+            NotificationGlassSceneSnapshot scene = sceneState.publish(lastNodes);
+            presentationState.scene(scene.generation, scene.size());
             renderer.requestSceneRefresh();
         }
         if (active) suppressVendorMaterial();
