@@ -5,6 +5,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
+import com.hellovoid.liquidui.config.GlassStyleConfig;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -86,6 +88,8 @@ public class WindowGlassSession implements AutoCloseable {
     private WindowGlassRenderer renderer;
     private ViewGroup hostParent;
     private boolean vendorPassBlurEnabled = true;
+    private GlassStyleConfig styleConfig = GlassStyleConfig.defaults();
+    private long styleVersion = 1L;
 
     /** Pure lifecycle constructor retained for registry/state tests; it cannot attach a renderer. */
     public WindowGlassSession(WindowKey key) {
@@ -171,6 +175,7 @@ public class WindowGlassSession implements AutoCloseable {
                     }
                 },
                 vendorPassBlurEnabled);
+        nextRenderer.updateGlassStyles(styleConfig, styleVersion);
         nextRenderer.setVisibility(View.VISIBLE);
         nextRenderer.setAlpha(0f);
         nextHost.addView(nextRenderer, new FrameLayout.LayoutParams(
@@ -187,6 +192,14 @@ public class WindowGlassSession implements AutoCloseable {
 
     public synchronized View sceneHost() {
         return host;
+    }
+
+    /** Applies material/sampling state only; Window producer ownership never changes here. */
+    public synchronized void updateGlassStyles(GlassStyleConfig style, long version) {
+        if (closed.get() || version <= styleVersion) return;
+        styleConfig = Objects.requireNonNull(style, "style");
+        styleVersion = version;
+        if (renderer != null) renderer.updateGlassStyles(style, version);
     }
 
     public synchronized void setVendorPassBlurEnabled(boolean enabled, String reason) {
