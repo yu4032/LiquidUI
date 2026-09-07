@@ -94,7 +94,6 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
         final Class<?> notificationPanelClass;
         final NotificationMaterialTargetRegistry targetRegistry;
         final NotificationVendorMaterialController materialController;
-        final NotificationGpuPassBlurStreamProbe streamProbe;
         try {
             Class<?> rowClass = TargetClassResolver.require(classLoader, ROW);
             Class<?> injectorClass = TargetClassResolver.require(classLoader, ROW_INJECTOR);
@@ -151,8 +150,6 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
                     clearMiBackgroundBlendColor,
                     setViewBackgroundBlendColors,
                     setMiBloomStroke);
-            streamProbe = new NotificationGpuPassBlurStreamProbe();
-
             logNativeRefractionCapabilityProbe();
             android.util.Log.i("LiquidUI",
                     "[LUI][NotifGlass][Hook] resolved notification glass authority "
@@ -188,7 +185,6 @@ public final class NotificationLiquidGlassHook implements SystemUiHook {
 
                             Object registeredRow = targetRegistry.observeMaterialTarget(target);
                             if (registeredRow == null) return;
-                            streamProbe.observe(target);
                             materialController.suppressSystemUiElementMaterial(target);
                             materialController.applyHyperLightElementMaterial(target, registeredRow);
                         } catch (Throwable error) {

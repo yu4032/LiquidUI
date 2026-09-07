@@ -225,10 +225,10 @@ final class WindowGlassRenderer extends TextureView
     private volatile int outputWidth;
     private volatile int outputHeight;
     private volatile int maxTextureSize;
-    private volatile int topSamplingExtraPx;
-    private volatile int bottomSamplingExtraPx;
-    private volatile int leftSamplingExtraPx;
-    private volatile int rightSamplingExtraPx;
+    private volatile int topSamplingExtraPx = Integer.MIN_VALUE;
+    private volatile int bottomSamplingExtraPx = Integer.MIN_VALUE;
+    private volatile int leftSamplingExtraPx = Integer.MIN_VALUE;
+    private volatile int rightSamplingExtraPx = Integer.MIN_VALUE;
 
     // Stage A samples a real overscan ring around the visible Window. The sample-valid
     // rectangle is used only by the normalization mirror guard; Window validity remains separate

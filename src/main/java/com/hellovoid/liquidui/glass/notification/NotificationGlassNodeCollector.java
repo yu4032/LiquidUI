@@ -124,21 +124,6 @@ final class NotificationGlassNodeCollector {
         }
     }
 
-    /** Temporary compile bridge for the pre-Task-7 session; deleted with legacy scene types. */
-    NotificationGlassNode collect(Object rowObject, View host) {
-        GlassNode node = collect(
-                rowObject,
-                host,
-                "legacy-notification:" + Integer.toHexString(System.identityHashCode(rowObject)),
-                0L,
-                visualZOrder(rowObject));
-        if (node == null) return null;
-        return new NotificationGlassNode(
-                node.left(), node.top(), node.width(), node.height(),
-                node.topLeftRadius(), node.topRightRadius(),
-                node.bottomRightRadius(), node.bottomLeftRadius(), node.opacity());
-    }
-
     int visualZOrder(Object rowObject) {
         if (!(rowObject instanceof View row)) return 0;
         int childIndex = 0;

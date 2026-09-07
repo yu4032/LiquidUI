@@ -7,6 +7,7 @@ import com.hellovoid.liquidui.hook.ArgumentRewriteHookBackend;
 import com.hellovoid.liquidui.hook.BeforeMethodHookBackend;
 import com.hellovoid.liquidui.hook.HookInstallResult;
 import com.hellovoid.liquidui.hook.SystemUiHook;
+import com.hellovoid.liquidui.glass.core.SystemUiGlassCore;
 import com.hellovoid.liquidui.reflect.TargetClassResolver;
 import com.hellovoid.liquidui.target.SystemUiTargetProfile;
 
@@ -62,16 +63,19 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
     private final BeforeMethodHookBackend beforeBackend;
     private final AfterMethodHookBackend afterBackend;
     private final ArgumentRewriteHookBackend argumentBackend;
+    private final SystemUiGlassCore glassCore;
     private final boolean enabled;
 
     public NotificationSharedGlassHook(
             BeforeMethodHookBackend beforeBackend,
             AfterMethodHookBackend afterBackend,
             ArgumentRewriteHookBackend argumentBackend,
+            SystemUiGlassCore glassCore,
             boolean enabled) {
         this.beforeBackend = Objects.requireNonNull(beforeBackend, "beforeBackend");
         this.afterBackend = Objects.requireNonNull(afterBackend, "afterBackend");
         this.argumentBackend = Objects.requireNonNull(argumentBackend, "argumentBackend");
+        this.glassCore = Objects.requireNonNull(glassCore, "glassCore");
         this.enabled = enabled;
     }
 
@@ -192,7 +196,8 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
                     new LegacyNotificationVendorMaterialController(
                             collector, rowClass, wrapperView, wrapperRow, disableBlur, clearBlend);
             runtime = new NotificationGlassRuntime(
-                    stackClass, collector, presentationController, activityState, authorityState);
+                    glassCore, stackClass, collector, presentationController,
+                    activityState, authorityState);
 
             panelPassBlur = View.class.getMethod("setPassWindowBlurEnabled", boolean.class);
             blurProviderSetRatio = accessible(blurProviderClass.getDeclaredMethod("setBlurRatio", float.class));
@@ -218,7 +223,7 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
         List<Runnable> rollbacks = new ArrayList<>();
         try {
             // Exact final material authority. Keep native 2dp fallback alive, then register the row
-            // with the one-per-NSSL shared renderer. No standalone GpuStream probe is instantiated.
+            // with the Window-shared adapter. No standalone GpuStream probe is instantiated.
             rollbacks.add(afterBackend.intercept(
                     updateBackground,
                     AfterMethodHookBackend.PRIORITY_HIGHEST,
