@@ -23,9 +23,9 @@ public class NotificationGlassVisualCorrectnessArchitectureTest {
     }
 
     @Test
-    public void notificationOffsetProbeDisablesParallaxOnly() throws Exception {
+    public void phaseZeroProfilePreservesValidatedRefractionWithoutParallax() throws Exception {
         String material = read(
-                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassMaterial.java");
+                "src/main/java/com/hellovoid/liquidui/glass/core/MaterialProfileRegistry.java");
 
         assertTrue(material.contains("b.parallaxScale = 0f"));
         assertTrue(material.contains("b.displacementScale = 1.70f"));
@@ -34,18 +34,15 @@ public class NotificationGlassVisualCorrectnessArchitectureTest {
     }
 
     @Test
-    public void sharedNotificationHostForcesTotalSamplingInsetToZero() throws Exception {
-        String policy = read(
-                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationZeroSamplingPolicy.java");
-        String session = read(
-                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassSession.java");
+    public void phaseZeroWindowRendererPreservesValidatedZeroSamplingInset() throws Exception {
+        String renderer = read(
+                "src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java");
 
-        assertTrue(policy.contains("topSamplingExtraPx"));
-        assertTrue(policy.contains("bottomSamplingExtraPx"));
-        assertTrue(policy.contains("leftSamplingExtraPx"));
-        assertTrue(policy.contains("rightSamplingExtraPx"));
-        assertTrue(policy.contains("Integer.MIN_VALUE"));
-        assertTrue(session.contains("NotificationZeroSamplingPolicy.apply(renderer)"));
+        assertTrue(renderer.contains("topSamplingExtraPx = Integer.MIN_VALUE"));
+        assertTrue(renderer.contains("bottomSamplingExtraPx = Integer.MIN_VALUE"));
+        assertTrue(renderer.contains("leftSamplingExtraPx = Integer.MIN_VALUE"));
+        assertTrue(renderer.contains("rightSamplingExtraPx = Integer.MIN_VALUE"));
+        assertTrue(renderer.contains("combineAutoGuardAndUserExtra"));
     }
 
     @Test
@@ -56,7 +53,7 @@ public class NotificationGlassVisualCorrectnessArchitectureTest {
         assertTrue(collector.contains("notification_item_bg_radius"));
         assertTrue(collector.contains("NATIVE_CARD_RADIUS_FALLBACK_DP = 24f"));
         assertTrue(collector.contains("nativeCardRadiusPx(background)"));
-        assertTrue(collector.contains("radius, radius, radius, radius"));
+        assertTrue(collector.contains("radius,\n                    radius,\n                    radius,\n                    radius"));
         assertFalse(collector.contains("topCornerRadius.invoke(rowObject)"));
         assertFalse(collector.contains("bottomCornerRadius.invoke(rowObject)"));
     }
