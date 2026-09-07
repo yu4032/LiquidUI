@@ -25,14 +25,13 @@ import java.util.Locale;
 /**
  * Feasibility probe for HyperOS's compositor-owned PassBlur stream.
  *
- * A single process-lifetime EGL consumer owns one external-OES SurfaceTexture. Its producer Surface
- * is handed to SurfaceFlinger through the exact hidden SetPassBlurSurface contract already used by
- * HyperOS. Ordinary observe/resume never recreates the BufferQueue. ViewRootImpl's exact
- * SurfaceChangedCallback is used only as rollover authority; binding happens afterward in an
- * independent transaction because injecting SetPassBlurSurface into ViewRoot's own callback
- * transaction aborts SystemUI in libgui on this build. Frame callbacks are drained with
- * updateTexImage on the EGL thread so an increasing counter proves a live GPU stream before any
- * optical renderer is enabled.
+ * One EGL context owns an external-OES texture. Ordinary observe/resume keeps the current
+ * SurfaceTexture/Surface producer alive. A real ViewRoot surface destruction is different:
+ * SurfaceFlinger disconnects the PassBlur producer together with that root, so the disconnected
+ * producer must never be handed to SetPassBlurSurface again. The SurfaceChangedCallback is used
+ * only as rollover authority; root destruction retires the old producer and root creation creates
+ * a fresh GPU SurfaceTexture/Surface before binding it with an independent transaction. No CPU
+ * capture or readback is involved.
  */
 final class NotificationGpuPassBlurStreamProbe {
     private static final String TAG = "[NotifGlass][GpuStream]";
@@ -46,13 +45,13 @@ final class NotificationGpuPassBlurStreamProbe {
     private volatile SystemUiPassBlurBridge.Binding binding;
     private volatile boolean initializationPosted;
 
-    // ViewRoot surface lifecycle observer. Kept separate from the producer so root rollover never
-    // recreates the SurfaceTexture/BufferQueue.
     private volatile Object observedViewRoot;
     private volatile Object surfaceChangedCallback;
     private volatile Method removeSurfaceChangedCallback;
     private volatile View observedRootHost;
     private volatile long rootSurfaceEpoch;
+    private volatile int sourceWidthPx;
+    private volatile int sourceHeightPx;
 
     private EGLDisplay eglDisplay = EGL14.EGL_NO_DISPLAY;
     private EGLContext eglContext = EGL14.EGL_NO_CONTEXT;
@@ -83,7 +82,7 @@ final class NotificationGpuPassBlurStreamProbe {
                     return;
                 }
             } catch (Throwable ignored) {
-                // A new target/root will fall through to rebind the same long-lived producer.
+                // A new target/root will fall through to normal binding logic.
             }
             SystemUiPassBlurBridge.unbind(binding);
             binding = null;
@@ -103,13 +102,13 @@ final class NotificationGpuPassBlurStreamProbe {
         DisplayMetrics metrics = target.getResources().getDisplayMetrics();
         if (rootWidth <= 0) rootWidth = metrics.widthPixels;
         if (rootHeight <= 0) rootHeight = metrics.heightPixels;
-        final int sourceWidth = Math.max(1, rootWidth);
-        final int sourceHeight = Math.max(1, rootHeight);
+        sourceWidthPx = Math.max(1, rootWidth);
+        sourceHeightPx = Math.max(1, rootHeight);
 
         gpuThread.start();
         Handler handler = new Handler(gpuThread.getLooper());
         gpuHandler = handler;
-        handler.post(() -> initializeGpuConsumer(rootHost, sourceWidth, sourceHeight));
+        handler.post(() -> initializeGpuConsumer(rootHost, sourceWidthPx, sourceHeightPx));
     }
 
     private void ensureSurfaceRolloverObserver(View rootHost) {
@@ -140,7 +139,7 @@ final class NotificationGpuPassBlurStreamProbe {
                             return null;
                         }
                         if ("surfaceCreated".equals(name) || "surfaceReplaced".equals(name)) {
-                            scheduleSurfaceRolloverRebind(rootHost, viewRoot, name);
+                            recreateGpuProducerForRootRollover(rootHost, viewRoot, name);
                         } else if ("surfaceDestroyed".equals(name)) {
                             onRootSurfaceDestroyed(viewRoot);
                         }
@@ -183,50 +182,89 @@ final class NotificationGpuPassBlurStreamProbe {
         if (current != null) {
             SystemUiPassBlurBridge.invalidate(current);
             binding = null;
-            log("root surface destroyed endpointGen=" + current.endpointGeneration
-                    + " producerPreserved=true");
         }
+        retireGpuProducerForRootRollover();
+        log("root surface destroyed endpointGen="
+                + (current == null ? endpointGeneration : current.endpointGeneration)
+                + " producerPreserved=false");
     }
 
-    private void scheduleSurfaceRolloverRebind(
+    /**
+     * SurfaceFlinger disconnects this producer when the owning PassBlur root is destructed. Remove
+     * it from shared state immediately so ordinary observe cannot accidentally rebind it, then
+     * release the actual BufferQueue objects on the EGL thread.
+     */
+    private void retireGpuProducerForRootRollover() {
+        Surface surface = producerSurface;
+        SurfaceTexture texture = surfaceTexture;
+        producerSurface = null;
+        surfaceTexture = null;
+
+        Handler handler = gpuHandler;
+        if (handler == null) {
+            if (surface != null) surface.release();
+            if (texture != null) texture.release();
+            return;
+        }
+        handler.post(() -> {
+            try {
+                makeEglCurrent();
+            } catch (Throwable ignored) {}
+            if (surface != null) surface.release();
+            if (texture != null) texture.release();
+            log("retired disconnected GPU producer producerPreserved=false");
+        });
+    }
+
+    private void recreateGpuProducerForRootRollover(
             View rootHost,
             Object expectedViewRoot,
             String event) {
         if (expectedViewRoot == null || expectedViewRoot != observedViewRoot) return;
         long eventEpoch = ++rootSurfaceEpoch;
-        Surface surface = producerSurface;
-        if (surface == null || !surface.isValid()) {
+        Handler handler = gpuHandler;
+        if (handler == null || externalTextureId == 0) {
             log("root surface " + event + " before gpu consumer ready");
             return;
         }
 
-        SystemUiPassBlurBridge.Binding current = binding;
-        if (current != null) {
-            SystemUiPassBlurBridge.invalidate(current);
-            binding = null;
+        // surfaceReplaced may arrive without a preceding surfaceDestroyed callback. In that case
+        // explicitly retire the old producer before creating a new one; reusing it is unsafe.
+        if (producerSurface != null || surfaceTexture != null) {
+            retireGpuProducerForRootRollover();
         }
 
-        // The callback is only an authority signal. Post to the ViewRoot queue so Xiaomi's own
-        // surface transaction completes first, then bind the preserved producer with our own fresh
-        // transaction. No fixed delay or polling is involved.
-        rootHost.post(() -> {
+        handler.post(() -> {
             if (expectedViewRoot != observedViewRoot || eventEpoch != rootSurfaceEpoch) return;
-            Surface readySurface = producerSurface;
-            if (readySurface == null || !readySurface.isValid()) return;
+            try {
+                makeEglCurrent();
+                Surface surface = createGpuProducerSurface(sourceWidthPx, sourceHeightPx);
+                log("recreated GPU producer event=" + event
+                        + " epoch=" + eventEpoch
+                        + " producerPreserved=false");
 
-            long beforeGeneration = endpointGeneration;
-            bindProducer(rootHost, readySurface);
-            SystemUiPassBlurBridge.Binding rebound = binding;
-            if (rebound != null && rebound.bound && rebound.endpointGeneration > beforeGeneration) {
-                log("SF source rebound event=" + event
-                        + " scale=" + SOURCE_SCALE
-                        + " endpointGen=" + rebound.endpointGeneration
-                        + " rootLayer=" + rebound.rootLayerId
-                        + " surfaceSeq=" + rebound.surfaceSequenceId
-                        + " producerPreserved=true");
-            } else {
-                log("SF source rollover bind deferred event=" + event
-                        + " candidateGen=" + (endpointGeneration + 1));
+                rootHost.post(() -> {
+                    if (expectedViewRoot != observedViewRoot || eventEpoch != rootSurfaceEpoch) return;
+                    if (surface != producerSurface || !surface.isValid()) return;
+                    long beforeGeneration = endpointGeneration;
+                    bindProducer(rootHost, surface);
+                    SystemUiPassBlurBridge.Binding rebound = binding;
+                    if (rebound != null
+                            && rebound.bound
+                            && rebound.endpointGeneration > beforeGeneration) {
+                        log("SF source rebound event=" + event
+                                + " scale=" + SOURCE_SCALE
+                                + " endpointGen=" + rebound.endpointGeneration
+                                + " rootLayer=" + rebound.rootLayerId
+                                + " surfaceSeq=" + rebound.surfaceSequenceId
+                                + " producerPreserved=false");
+                    } else {
+                        log("SF source rollover bind deferred event=" + event
+                                + " candidateGen=" + (endpointGeneration + 1));
+                    }
+                });
+            } catch (Throwable error) {
+                logError("GPU producer recreate failed event=" + event, error);
             }
         });
     }
@@ -260,28 +298,13 @@ final class NotificationGpuPassBlurStreamProbe {
             if (externalTextureId == 0) {
                 throw new IllegalStateException("external OES texture allocation failed");
             }
-            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, externalTextureId);
-            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                    GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
-            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                    GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                    GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
-            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                    GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+            configureExternalTexture();
 
-            SurfaceTexture texture = new SurfaceTexture(externalTextureId);
-            int bufferWidth = Math.max(1, Math.round(sourceWidth * SOURCE_SCALE));
-            int bufferHeight = Math.max(1, Math.round(sourceHeight * SOURCE_SCALE));
-            texture.setDefaultBufferSize(bufferWidth, bufferHeight);
-            texture.setOnFrameAvailableListener(this::onFrameAvailable, gpuHandler);
-            Surface surface = new Surface(texture);
-
-            surfaceTexture = texture;
-            producerSurface = surface;
+            Surface surface = createGpuProducerSurface(sourceWidth, sourceHeight);
             log("gpu consumer ready texture=" + externalTextureId
                     + " source=" + sourceWidth + "x" + sourceHeight
-                    + " buffer=" + bufferWidth + "x" + bufferHeight
+                    + " buffer=" + Math.max(1, Math.round(sourceWidth * SOURCE_SCALE))
+                    + "x" + Math.max(1, Math.round(sourceHeight * SOURCE_SCALE))
                     + " scale=" + SOURCE_SCALE);
 
             rootHost.post(() -> bindProducer(rootHost, surface));
@@ -290,8 +313,40 @@ final class NotificationGpuPassBlurStreamProbe {
         }
     }
 
+    private Surface createGpuProducerSurface(int sourceWidth, int sourceHeight) {
+        makeEglCurrent();
+        configureExternalTexture();
+
+        SurfaceTexture texture = new SurfaceTexture(externalTextureId);
+        int bufferWidth = Math.max(1, Math.round(sourceWidth * SOURCE_SCALE));
+        int bufferHeight = Math.max(1, Math.round(sourceHeight * SOURCE_SCALE));
+        texture.setDefaultBufferSize(bufferWidth, bufferHeight);
+        texture.setOnFrameAvailableListener(this::onFrameAvailable, gpuHandler);
+        Surface surface = new Surface(texture);
+
+        surfaceTexture = texture;
+        producerSurface = surface;
+        return surface;
+    }
+
+    private void configureExternalTexture() {
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, externalTextureId);
+        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
+                GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
+                GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
+                GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
+                GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+    }
+
     private void bindProducer(View rootHost, Surface surface) {
         if (rootHost == null || surface == null || !surface.isValid()) return;
+        if (surface != producerSurface) {
+            log("bind skipped stale GPU producer");
+            return;
+        }
         if (!rootHost.isAttachedToWindow()) {
             rootHost.post(() -> bindProducer(rootHost, surface));
             return;
