@@ -9,7 +9,7 @@ import com.hellovoid.liquidui.diagnostics.BootstrapDiagnosticsPolicy;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
 import com.hellovoid.liquidui.hook.HookRegistryReport;
 import com.hellovoid.liquidui.hook.SystemUiHookRegistry;
-import com.hellovoid.liquidui.glass.notification.NotificationLiquidGlassHook;
+import com.hellovoid.liquidui.glass.notification.NotificationSharedGlassHook;
 import com.hellovoid.liquidui.target.FrameworkPackageVersionReader;
 import com.hellovoid.liquidui.target.SystemUiRuntimeInfo;
 import com.hellovoid.liquidui.target.SystemUiRuntimeInfoProvider;
@@ -69,7 +69,7 @@ public final class ModuleMain extends XposedModule {
             }
 
             SystemUiHookRegistry hookRegistry = new SystemUiHookRegistry(List.of(
-                    new NotificationLiquidGlassHook(
+                    new NotificationSharedGlassHook(
                             new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()),
                             new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
                             new Api101ArgumentRewriteHookBackend(config.diagnosticsEnabled()),
