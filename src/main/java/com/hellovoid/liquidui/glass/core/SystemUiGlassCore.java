@@ -18,6 +18,7 @@ public final class SystemUiGlassCore implements AutoCloseable {
     private final WindowGlassRegistry windows;
     private final AtomicBoolean closed = new AtomicBoolean();
 
+    /** Production path: owns the process-global SystemUI glass render thread. */
     public SystemUiGlassCore(SessionFactory sessionFactory) {
         Objects.requireNonNull(sessionFactory, "sessionFactory");
         renderThread = new HandlerThread("LiquidUI-SystemUiGlass");
@@ -26,9 +27,14 @@ public final class SystemUiGlassCore implements AutoCloseable {
         windows = new WindowGlassRegistry(key -> sessionFactory.create(key, renderHandler));
     }
 
-    /** Compatibility constructor for pure registry tests and sessions that do not render yet. */
-    public SystemUiGlassCore(WindowGlassRegistry.Factory sessionFactory) {
-        this((key, ignoredRenderHandler) -> sessionFactory.create(key));
+    /**
+     * Pure registry path used by SDK-independent lifecycle tests. Package-private by design so
+     * production callers cannot accidentally construct a core without the shared render thread.
+     */
+    SystemUiGlassCore(WindowGlassRegistry.Factory sessionFactory) {
+        windows = new WindowGlassRegistry(Objects.requireNonNull(sessionFactory, "sessionFactory"));
+        renderThread = null;
+        renderHandler = null;
     }
 
     public WindowGlassSession sessionFor(Object root, int displayId) {
@@ -52,6 +58,6 @@ public final class SystemUiGlassCore implements AutoCloseable {
     public void close() {
         if (!closed.compareAndSet(false, true)) return;
         windows.close();
-        renderThread.quitSafely();
+        if (renderThread != null) renderThread.quitSafely();
     }
 }
