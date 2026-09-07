@@ -13,8 +13,10 @@ import java.lang.reflect.Method;
 /** Experimental observer endpoint attached to HyperOS's own NotificationShade PassBlur root. */
 final class SystemUiPassBlurBridge {
     private static final String TAG = "[NotifGlass][PBGL]";
-    // Exact supplied HyperOS runtime and libhyper_surface_context use quarter-scale PassBlur.
-    private static final float SCALE = 0.25f;
+    // LiquidUI needs native-resolution backdrop pixels for Prismal refraction. HyperOS accepts the
+    // sampling scale in the same setUpdateTextureFlag transaction; 1.0 removes the previous 0.25
+    // source downsample and its quarter-tile SurfaceTexture transform.
+    private static final float SCALE = 1.0f;
 
     static final class Binding {
         final SurfaceControl hostRootSurface;
