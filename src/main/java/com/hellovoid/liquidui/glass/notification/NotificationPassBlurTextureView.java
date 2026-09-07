@@ -46,7 +46,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class NotificationPassBlurTextureView extends TextureView
         implements TextureView.SurfaceTextureListener {
     interface ActivationListener {
-        void onFirstFrameActive();
+        void onSourceBound(long sourceGeneration);
+        void onFirstFrameActive(
+                long sourceGeneration, long sceneGeneration, long swapSequence);
         void onTerminalFailure(String stage, Throwable error);
     }
     private static final String TAG = "[NotifGlass][PBTX]";
@@ -257,6 +259,7 @@ final class NotificationPassBlurTextureView extends TextureView
     private boolean prismalMappingLogged;
     private long producerFrameCount;
     private long renderedFrameCount;
+    private long successfulSwapSequence;
     private long powerWindowStartedMs = SystemClock.uptimeMillis();
     private ViewTreeObserver preDrawObserver;
     private ViewTreeObserver.OnPreDrawListener preDrawListener;
@@ -316,10 +319,20 @@ final class NotificationPassBlurTextureView extends TextureView
      */
     void setProducerUpdatesEnabled(boolean enabled, String reason) {
         if (shuttingDown) return;
+        boolean changed = producerUpdatesEnabled != enabled;
         producerUpdatesEnabled = enabled;
         renderHandler.post(() -> {
+            if (shuttingDown) return;
+            if (changed) {
+                frameAvailable.set(false);
+                producerRecovery.onGeometryInvalidated();
+                gpuBackdropActive = false;
+                firstFrameLogged = false;
+                firstDrawLogged = false;
+                firstMatrixLogged = false;
+            }
             SystemUiPassBlurBridge.Binding current = binding;
-            if (shuttingDown || current == null || !current.bound) return;
+            if (current == null || !current.bound) return;
             boolean effective = enabled && vendorPassBlurEnabled;
             if (effective) SystemUiPassBlurBridge.resumeUpdates(current);
             else SystemUiPassBlurBridge.pauseUpdates(current);
@@ -674,7 +687,10 @@ final class NotificationPassBlurTextureView extends TextureView
         inputProducerSurface = producer;
         inputProducerGeneration = ++nextProducerGeneration;
         input.setOnFrameAvailableListener(texture -> {
-            if (shuttingDown || texture != inputSurfaceTexture) return;
+            if (shuttingDown || texture != inputSurfaceTexture
+                    || !producerUpdatesEnabled || !vendorPassBlurEnabled) {
+                return;
+            }
             producerFrameCount++;
             frameAvailable.set(true);
             drawLatestFrame(true);
@@ -779,15 +795,23 @@ final class NotificationPassBlurTextureView extends TextureView
                         + Integer.toHexString(EGL14.eglGetError()));
             }
             renderedFrameCount++;
+            long activationSourceGeneration = inputProducerGeneration;
+            long activationSceneGeneration = scene != null ? scene.generation : -1L;
+            long activationSwapSequence = ++successfulSwapSequence;
             maybeLogPowerStats();
 
             SystemUiPassBlurBridge.Binding currentBinding = binding;
-            gpuBackdropActive = currentBinding != null && currentBinding.bound;
+            gpuBackdropActive = currentBinding != null
+                    && currentBinding.bound
+                    && currentBinding.endpointGeneration == activationSourceGeneration;
             if (gpuBackdropActive && !firstDrawLogged
                     && scene != null && scene.size() > 0) {
                 firstDrawLogged = true;
                 if (activationListener != null) {
-                    post(activationListener::onFirstFrameActive);
+                    post(() -> activationListener.onFirstFrameActive(
+                                activationSourceGeneration,
+                                activationSceneGeneration,
+                                activationSwapSequence));
                 }
                 log(" first EGL material draw"
                         + " textureDomain=normalized-2d"
@@ -802,6 +826,9 @@ final class NotificationPassBlurTextureView extends TextureView
                         + " producerSurface=" + mapping.surfaceWidth + "x" + mapping.surfaceHeight
                         + " producerBuffer=" + mapping.bufferWidth + "x" + mapping.bufferHeight
                         + " configRot=" + mapping.configRotation
+                        + " sourceGen=" + activationSourceGeneration
+                        + " sceneGen=" + activationSceneGeneration
+                        + " swapSeq=" + activationSwapSequence
                         + " frameCallback=" + fromFrameCallback);
             }
             if (gpuBackdropActive && !stageBDiagnosticsLogged) {
@@ -984,6 +1011,9 @@ final class NotificationPassBlurTextureView extends TextureView
             SystemUiPassBlurBridge.pauseUpdates(next);
         }
         producerRecovery.onBindSucceeded();
+        if (activationListener != null) {
+            activationListener.onSourceBound(endpointGeneration);
+        }
         configRotation = current.configRotation;
         boundSurfaceWidth = current.surfaceWidth;
         boundSurfaceHeight = current.surfaceHeight;
