@@ -12,7 +12,7 @@ import com.hellovoid.liquidui.config.ConfigSchema;
 import io.github.libxposed.service.XposedService;
 import io.github.libxposed.service.XposedServiceHelper;
 
-/** Module-app bridge that mirrors the minimal local UI schema to API101 Remote Preferences. */
+/** Mirrors the complete typed local settings schema to API101 Remote Preferences. */
 public final class LiquidUiApp extends Application
         implements XposedServiceHelper.OnServiceListener,
         SharedPreferences.OnSharedPreferenceChangeListener {
@@ -34,9 +34,7 @@ public final class LiquidUiApp extends Application
     public void onServiceBind(XposedService value) {
         service = value;
         try {
-            reconcile(ConfigSchema.ENABLED);
-            reconcile(ConfigSchema.DIAGNOSTICS_ENABLED);
-            reconcile(ConfigSchema.NOTIFICATION_GLASS_ENABLED);
+            for (ConfigKey<?> key : ConfigSchema.all()) reconcile(key);
         } catch (Throwable error) {
             Log.w("LiquidUI", "Remote Preferences reconciliation failed", error);
         }
@@ -48,18 +46,16 @@ public final class LiquidUiApp extends Application
     }
 
     @Override
-    public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
-        if (reconciling || key == null) return;
-        if (ConfigSchema.ENABLED.name().equals(key)) {
-            sync(ConfigSchema.ENABLED);
-        } else if (ConfigSchema.DIAGNOSTICS_ENABLED.name().equals(key)) {
-            sync(ConfigSchema.DIAGNOSTICS_ENABLED);
-        } else if (ConfigSchema.NOTIFICATION_GLASS_ENABLED.name().equals(key)) {
-            sync(ConfigSchema.NOTIFICATION_GLASS_ENABLED);
+    public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String changedKey) {
+        if (reconciling || changedKey == null) return;
+        for (ConfigKey<?> key : ConfigSchema.all()) {
+            if (!key.name().equals(changedKey)) continue;
+            sync(key);
+            return;
         }
     }
 
-    private void reconcile(ConfigKey<Boolean> key) {
+    private void reconcile(ConfigKey<?> key) {
         SharedPreferences remote = remotePreferences();
         if (remote == null || localPreferences == null) return;
         String name = key.name();
@@ -71,21 +67,33 @@ public final class LiquidUiApp extends Application
 
         reconciling = true;
         try {
-            localPreferences.edit()
-                    .putBoolean(name, remote.getBoolean(name, key.defaultValue()))
-                    .apply();
+            SharedPreferences.Editor editor = localPreferences.edit();
+            if (key.kind() == ConfigKey.Kind.BOOLEAN) {
+                boolean fallback = (Boolean) key.defaultValue();
+                editor.putBoolean(name, remote.getBoolean(name, fallback));
+            } else if (key.kind() == ConfigKey.Kind.INT) {
+                int fallback = (Integer) key.defaultValue();
+                editor.putInt(name, remote.getInt(name, fallback));
+            }
+            editor.apply();
         } finally {
             reconciling = false;
         }
     }
 
-    private void sync(ConfigKey<Boolean> key) {
+    private void sync(ConfigKey<?> key) {
         SharedPreferences remote = remotePreferences();
         if (remote == null || localPreferences == null) return;
         String name = key.name();
-        remote.edit()
-                .putBoolean(name, localPreferences.getBoolean(name, key.defaultValue()))
-                .apply();
+        SharedPreferences.Editor editor = remote.edit();
+        if (key.kind() == ConfigKey.Kind.BOOLEAN) {
+            boolean fallback = (Boolean) key.defaultValue();
+            editor.putBoolean(name, localPreferences.getBoolean(name, fallback));
+        } else if (key.kind() == ConfigKey.Kind.INT) {
+            int fallback = (Integer) key.defaultValue();
+            editor.putInt(name, localPreferences.getInt(name, fallback));
+        }
+        editor.apply();
     }
 
     private static SharedPreferences remotePreferences() {
