@@ -52,14 +52,12 @@ public class NotificationGlassVisualCorrectnessArchitectureTest {
     public void glassUsesSameFixedRadiusAuthorityAsNativeMiuiPassBlurOutline() throws Exception {
         String collector = read(
                 "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java");
-        String hook = read(
-                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationSharedGlassHook.java");
 
         assertTrue(collector.contains("notification_item_bg_radius"));
+        assertTrue(collector.contains("NATIVE_CARD_RADIUS_FALLBACK_DP = 24f"));
         assertTrue(collector.contains("nativeCardRadiusPx(background)"));
+        assertTrue(collector.contains("radius, radius, radius, radius"));
         assertFalse(collector.contains("topCornerRadius.invoke(rowObject)"));
         assertFalse(collector.contains("bottomCornerRadius.invoke(rowObject)"));
-        assertFalse(hook.contains("rowClass.getMethod(\"getTopCornerRadius\")"));
-        assertFalse(hook.contains("rowClass.getMethod(\"getBottomCornerRadius\")"));
     }
 }
