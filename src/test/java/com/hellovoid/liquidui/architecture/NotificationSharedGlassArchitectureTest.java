@@ -88,7 +88,7 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
-    public void gpuProbeRecoversFromViewRootSurfaceRolloverWithoutPolling() throws Exception {
+    public void gpuProbeRecoversFromViewRootSurfaceRolloverWithoutUsingCallbackTransaction() throws Exception {
         String probe = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGpuPassBlurStreamProbe.java");
         String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
 
@@ -97,10 +97,15 @@ public class NotificationSharedGlassArchitectureTest {
         assertTrue(probe.contains("surfaceCreated"));
         assertTrue(probe.contains("surfaceReplaced"));
         assertTrue(probe.contains("surfaceDestroyed"));
-        assertTrue(probe.contains("onRootSurfaceAvailable"));
-        assertTrue(probe.contains("onRootSurfaceDestroyed"));
-        assertTrue(bridge.contains("bindInTransaction"));
-        assertTrue(bridge.contains("SurfaceControl.Transaction transaction"));
+        assertTrue(probe.contains("scheduleSurfaceRolloverRebind"));
+        assertTrue(probe.contains("producerPreserved=true"));
+
+        // Native crash regression: never call Xiaomi SetPassBlurSurface from ViewRoot's own
+        // surface-created/replaced transaction. The callback is only an authority signal; rebind
+        // happens afterward using SystemUiPassBlurBridge's independent Transaction.
+        assertFalse(probe.contains("args[0] instanceof SurfaceControl.Transaction"));
+        assertFalse(probe.contains("SurfaceControl.Transaction transaction"));
+        assertFalse(bridge.contains("bindInTransaction"));
 
         assertFalse(probe.contains("postDelayed"));
         assertFalse(probe.contains("Thread.sleep"));
