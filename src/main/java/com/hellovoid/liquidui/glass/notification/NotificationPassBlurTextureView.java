@@ -183,6 +183,9 @@ final class NotificationPassBlurTextureView extends TextureView
     private final Handler renderHandler;
     private final Handler mainHandler;
     private final AtomicBoolean frameAvailable = new AtomicBoolean(false);
+    private final AtomicBoolean drawRequested = new AtomicBoolean(false);
+    private final AtomicBoolean drawRequestedFromFrame = new AtomicBoolean(false);
+    private final AtomicBoolean drawScheduled = new AtomicBoolean(false);
     private final ZeroCopyProducerRecoveryState producerRecovery =
             new ZeroCopyProducerRecoveryState();
     private final float[] textureMatrix = new float[16];
@@ -314,12 +317,8 @@ final class NotificationPassBlurTextureView extends TextureView
 
     void requestSceneRefresh() {
         if (shuttingDown) return;
-        postOnAnimation(() -> {
-            if (shuttingDown) return;
-            updateBackdropMapping();
-            if (producerRecovery.hasFreshFrame()) renderHandler.post(() -> drawLatestFrame(false));
-            postInvalidateOnAnimation();
-        });
+        updateBackdropMapping();
+        if (producerRecovery.hasFreshFrame()) scheduleDraw(false);
     }
 
     /**
@@ -702,7 +701,7 @@ final class NotificationPassBlurTextureView extends TextureView
             }
             producerFrameCount++;
             frameAvailable.set(true);
-            drawLatestFrame(true);
+            scheduleDraw(true);
         }, renderHandler);
     }
 
@@ -736,6 +735,33 @@ final class NotificationPassBlurTextureView extends TextureView
         rawFramebuffer = createFramebuffer(rawTexture);
         fboWidth = nextWidth;
         fboHeight = nextHeight;
+    }
+
+    private void scheduleDraw(boolean fromFrameCallback) {
+        if (shuttingDown) return;
+        drawRequested.set(true);
+        if (fromFrameCallback) drawRequestedFromFrame.set(true);
+        if (!drawScheduled.compareAndSet(false, true)) return;
+        renderHandler.post(this::drainDrawRequests);
+    }
+
+    private void drainDrawRequests() {
+        if (shuttingDown) {
+            drawRequested.set(false);
+            drawRequestedFromFrame.set(false);
+            drawScheduled.set(false);
+            return;
+        }
+
+        boolean requested = drawRequested.getAndSet(false);
+        boolean fromFrameCallback = drawRequestedFromFrame.getAndSet(false);
+        if (requested) drawLatestFrame(fromFrameCallback);
+
+        drawScheduled.set(false);
+        if (!shuttingDown && drawRequested.get()
+                && drawScheduled.compareAndSet(false, true)) {
+            renderHandler.post(this::drainDrawRequests);
+        }
     }
 
     private void drawLatestFrame(boolean fromFrameCallback) {
@@ -1271,7 +1297,7 @@ final class NotificationPassBlurTextureView extends TextureView
                 dock.coverage);
         stageBDiagnosticsLogged = false;
         prismalMappingLogged = false;
-        if (producerRecovery.hasFreshFrame()) renderHandler.post(() -> drawLatestFrame(false));
+        if (producerRecovery.hasFreshFrame()) scheduleDraw(false);
     }
 
     private ProducerGeometry readSurfaceGeometry(View materialHost) {
