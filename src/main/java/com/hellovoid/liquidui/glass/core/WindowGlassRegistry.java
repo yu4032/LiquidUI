@@ -1,5 +1,7 @@
 package com.hellovoid.liquidui.glass.core;
 
+import com.hellovoid.liquidui.config.GlassStyleConfig;
+
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -13,6 +15,8 @@ public final class WindowGlassRegistry implements AutoCloseable {
 
     private final Factory factory;
     private final Map<WindowKey, WindowGlassSession> sessions = new HashMap<>();
+    private GlassStyleConfig latestStyle = GlassStyleConfig.defaults();
+    private long latestStyleVersion = 1L;
     private boolean closed;
 
     public WindowGlassRegistry(Factory factory) {
@@ -27,8 +31,20 @@ public final class WindowGlassRegistry implements AutoCloseable {
         WindowGlassSession current = sessions.get(key);
         if (current != null && !current.isClosed()) return current;
         WindowGlassSession created = Objects.requireNonNull(factory.create(key), "session");
+        created.updateGlassStyles(latestStyle, latestStyleVersion);
         sessions.put(key, created);
         return created;
+    }
+
+    synchronized void updateGlassStyles(GlassStyleConfig style, long version) {
+        Objects.requireNonNull(style, "style");
+        if (closed || version <= latestStyleVersion) return;
+        latestStyle = style;
+        latestStyleVersion = version;
+        purgeCollected();
+        for (WindowGlassSession session : sessions.values()) {
+            if (!session.isClosed()) session.updateGlassStyles(style, version);
+        }
     }
 
     public synchronized boolean remove(WindowKey key, WindowGlassSession session) {
