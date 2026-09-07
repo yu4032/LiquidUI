@@ -130,16 +130,19 @@ public class NotificationSharedGlassArchitectureTest {
     public void blackBackdropProbeComparesRawMatrixAndStageBOnGpu() throws Exception {
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
         String shaders = read("src/main/java/com/hellovoid/liquidui/glass/notification/Miuix307PassBlurShaders.java");
+        String material = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassMaterial.java");
 
-        assertTrue(renderer.contains("MAPPING_PROBE_ENABLED = true"));
-        assertTrue(renderer.contains("OES_MAPPING_PROBE_FRAGMENT"));
-        assertTrue(renderer.contains("renderMappingProbePass(mapping)"));
+        assertTrue(shaders.contains("MAPPING_PROBE_ENABLED = true"));
         assertTrue(shaders.contains("vUv.x < 0.333333"));
         assertTrue(shaders.contains("vUv.x < 0.666667"));
         assertTrue(shaders.contains("texture2D(uTexture, rawUv)"));
         assertTrue(shaders.contains("texture2D(uTexture, matrixUv)"));
         assertTrue(shaders.contains("texture2D(uTexture, stageBUv)"));
         assertTrue(shaders.contains("vec4(sampled.rgb, 1.0)"));
+        assertTrue(material.contains("MAPPING_PROBE_IDENTITY = true"));
+        assertTrue(material.contains("b.displacementScale = 0f"));
+        assertTrue(material.contains("b.chromaticAberration = 0f"));
+        assertTrue(material.contains("b.blurRadiusPx = 0f"));
         assertFalse(renderer.contains("glReadPixels"));
     }
 
