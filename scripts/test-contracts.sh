@@ -114,6 +114,8 @@ while IFS= read -r f; do
   fi
 done < <(find "$ROOT/src/main/java/com/hellovoid/liquidui/glass/core" -name '*.java' -print | sort)
 PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/core/SystemUiGlassCore.java")
+# GlassPrismalAdapter is deliberately Android-free even though it consumes pure Prismal DTOs.
+PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/core/GlassPrismalAdapter.java")
 # Prismal parameter/profile DTOs are Android-free and are part of the glass mapping contract.
 PURE_MAIN+=("$ROOT/prismal/src/main/java/com/hellovoid/prismal/PrismalParams.java")
 PURE_MAIN+=("$ROOT/prismal/src/main/java/com/hellovoid/prismal/PrismalHighlightProfile.java")
