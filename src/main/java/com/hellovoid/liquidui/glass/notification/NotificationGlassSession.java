@@ -36,8 +36,6 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
     private ViewTreeObserver observer;
     private ViewTreeObserver.OnPreDrawListener preDrawListener;
     private List<NotificationGlassNode> lastNodes = List.of();
-    private long sourceGeneration = 1L;
-    private long swapSequence;
     private boolean active;
     private boolean shutdown;
     private boolean updatesPausedForNoRows;
@@ -57,7 +55,6 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         this.activityState = activityState;
         this.authorityState = authorityState;
         this.authorityListener = this::onVendorPassBlurChanged;
-        presentationState.sourceBound(sourceGeneration);
 
         host = new NotificationGlassHostView(parent.getContext());
         host.setId(View.generateViewId());
@@ -82,14 +79,13 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
                 stack,
                 new NotificationViewRootSurfaceObserver.Listener() {
                     @Override public void onSurfaceDestroyed() {
-                        presentationState.sourceLost(sourceGeneration);
+                        long generation = presentationState.sourceGeneration();
+                        if (generation >= 0L) presentationState.sourceLost(generation);
                         revokeSharedPresentation("root-surface-destroyed");
                     }
 
                     @Override public void onSurfaceReady(String event) {
                         if (shutdown) return;
-                        sourceGeneration++;
-                        presentationState.sourceBound(sourceGeneration);
                         renderer.rebindProducer("root-" + event);
                     }
                 });
@@ -100,7 +96,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         log("created stack=" + stack.getClass().getName()
                 + " parent=" + parent.getClass().getName()
                 + " hostIndex=" + stackIndex
-                + " sharedRenderer=true sourceGen=" + sourceGeneration);
+                + " sharedRenderer=true");
     }
 
     boolean isShutdown() { return shutdown; }
@@ -159,16 +155,31 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
         }
     }
 
-    @Override public void onFirstFrameActive() {
+    @Override
+    public void onSourceBound(long generation) {
+        if (shutdown || !authorityState.isEnabled()) return;
+        long previous = presentationState.sourceGeneration();
+        if (previous != generation) {
+            presentationState.sourceBound(generation);
+            if (active) revokeSharedPresentation("source-generation-changed");
+        }
+        log("shared GPU source bound sourceGen=" + generation);
+    }
+
+    @Override
+    public void onFirstFrameActive(
+            long sourceGeneration, long sceneGeneration, long swapSequence) {
         if (shutdown || active || !authorityState.isEnabled() || lastNodes.isEmpty()) return;
-        NotificationGlassSceneSnapshot scene = sceneState.latest();
         presentationState.freshFrame(sourceGeneration);
         NotificationGlassPresentationState.ActivationToken token =
                 presentationState.swapSucceeded(
-                        sourceGeneration, scene.generation, ++swapSequence);
+                        sourceGeneration, sceneGeneration, swapSequence);
         if (!presentationState.accept(token)) {
             log("late/stale GPU activation rejected sourceGen=" + sourceGeneration
-                    + " sceneGen=" + scene.generation);
+                    + " sceneGen=" + sceneGeneration
+                    + " swapSeq=" + swapSequence
+                    + " stateSourceGen=" + presentationState.sourceGeneration()
+                    + " stateSceneGen=" + presentationState.sceneGeneration());
             return;
         }
 
@@ -220,8 +231,6 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
             renderer.setVendorPassBlurEnabled(false, "hyperos-notifPassBlur");
             return;
         }
-        sourceGeneration++;
-        presentationState.sourceBound(sourceGeneration);
         renderer.setVendorPassBlurEnabled(true, "hyperos-notifPassBlur");
         refreshScene();
     }
