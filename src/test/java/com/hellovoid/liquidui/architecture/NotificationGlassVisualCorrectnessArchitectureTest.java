@@ -14,12 +14,12 @@ public class NotificationGlassVisualCorrectnessArchitectureTest {
 
     @Test
     public void prismalOpacityMaskUsesActualPerCornerRadius() throws Exception {
-        String renderer = read("prismal/src/main/java/com/hellovoid/prismal/PrismalRenderer.java");
+        String gate = read("prismal/src/main/java/com/hellovoid/prismal/PrismalComponentGateShader.java");
 
-        assertTrue(renderer.contains(
-                "float distMask = sdRoundedRectRealistic(cKy, halfSz, radCorner);"));
-        assertFalse(renderer.contains(
+        assertTrue(gate.contains(
                 "float distMask = sdRoundBox(pPx, halfSz, crMask, u_sminSmoothing);"));
+        assertTrue(gate.contains("float distMask = sdKy;"));
+        assertTrue(gate.contains("Prismal per-corner opacity mask"));
     }
 
     @Test
