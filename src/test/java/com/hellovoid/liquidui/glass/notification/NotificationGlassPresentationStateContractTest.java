@@ -23,6 +23,25 @@ public class NotificationGlassPresentationStateContractTest {
     }
 
     @Test
+    public void firstValidSwapMayActivateWhileUiSceneAdvances() {
+        NotificationGlassPresentationState state = new NotificationGlassPresentationState();
+        state.sourceBound(7L);
+        state.scene(17L, 3);
+        state.freshFrame(7L);
+
+        // The EGL thread completed a valid non-empty scene 17 frame, but by the time its callback
+        // reached the UI thread the stack had already published scene 19. This is normal during
+        // shade expansion and must not starve initial presentation authority.
+        state.scene(19L, 3);
+        NotificationGlassPresentationState.ActivationToken token =
+                state.swapSucceeded(7L, 17L, 1L);
+
+        assertNotNull(token);
+        assertTrue(state.accept(token));
+        assertTrue(state.isGlassActive());
+    }
+
+    @Test
     public void staleTokenRejectedAfterSourceLoss() {
         NotificationGlassPresentationState state = new NotificationGlassPresentationState();
         state.sourceBound(3L);
@@ -56,14 +75,14 @@ public class NotificationGlassPresentationStateContractTest {
     }
 
     @Test
-    public void staleSourceOrSceneCannotActivate() {
+    public void staleSourceOrFutureSceneCannotActivate() {
         NotificationGlassPresentationState state = new NotificationGlassPresentationState();
         state.sourceBound(9L);
         state.scene(20L, 3);
         state.freshFrame(9L);
 
         assertNull(state.swapSucceeded(8L, 20L, 1L));
-        assertNull(state.swapSucceeded(9L, 19L, 2L));
+        assertNull(state.swapSucceeded(9L, 21L, 2L));
         assertFalse(state.isGlassActive());
     }
 
