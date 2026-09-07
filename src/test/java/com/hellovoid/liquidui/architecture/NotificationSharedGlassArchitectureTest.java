@@ -147,14 +147,18 @@ public class NotificationSharedGlassArchitectureTest {
         String shaders = read("src/main/java/com/hellovoid/liquidui/glass/notification/Miuix307PassBlurShaders.java");
         String material = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassMaterial.java");
 
-        assertTrue(shaders.contains("return vec2(rootUv.y, 1.0 - rootUv.x);"));
-        assertTrue(shaders.contains("vec2 orientedUv = orientRootUv(rootUv);"));
-        assertTrue(shaders.contains("uTexMatrix * vec4(orientedUv, 0.0, 1.0)"));
+        assertTrue(shaders.contains("uniform mat4 uWindowUvToOes;"));
+        assertTrue(shaders.contains("uWindowUvToOes * vec4(vUv, 0.0, 1.0)"));
+        assertFalse(shaders.contains("orientRootUv"));
+        assertFalse(shaders.contains("uConfigRot"));
+        assertFalse(shaders.contains("uBackdropRect"));
         assertFalse(shaders.contains("compensateSurfaceTextureCropPreservingOrientation"));
         assertFalse(shaders.contains("MAPPING_PROBE_ENABLED = true"));
         assertFalse(shaders.contains("panelUv"));
         assertTrue(material.contains("b.displacementScale = 1.70f"));
         assertTrue(material.contains("b.chromaticAberration = 42f"));
+        assertTrue(renderer.contains("DisplayTransformEngine.compose"));
+        assertFalse(renderer.contains("compensateSurfaceTextureCropPreservingOrientation"));
         assertFalse(renderer.contains("glReadPixels"));
     }
 

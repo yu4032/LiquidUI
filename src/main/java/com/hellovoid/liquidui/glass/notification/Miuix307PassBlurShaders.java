@@ -17,55 +17,15 @@ final class Miuix307PassBlurShaders {
             precision highp float;
 
             uniform samplerExternalOES uTexture;
-            uniform mat4 uTexMatrix;
-            uniform vec4 uBackdropRect;
-            uniform int uConfigRot;
-            uniform vec4 uValidDockRect;
+            uniform mat4 uWindowUvToOes;
             varying vec2 vUv;
 
-            vec2 orientRootUv(vec2 rootUv) {
-                if (uConfigRot == 1) {
-                    // HyperOS ROTATION_90 producer pixels appear visually clockwise when sampled
-                    // with the SurfaceTexture matrix alone. Rotate sampling coordinates clockwise
-                    // to produce the inverse (counter-clockwise) visual correction.
-                    return vec2(rootUv.y, 1.0 - rootUv.x);
-                } else if (uConfigRot == 2) {
-                    return vec2(1.0 - rootUv.x, 1.0 - rootUv.y);
-                } else if (uConfigRot == 3) {
-                    return vec2(1.0 - rootUv.y, rootUv.x);
-                }
-                return rootUv;
-            }
-
-            float mirrorIntoValidRange(float value, float lo, float hi) {
-                float span = hi - lo;
-                if (span <= 0.000001) {
-                    return clamp(value, 0.0, 1.0);
-                }
-                if (value >= lo && value <= hi) {
-                    return value;
-                }
-
-                float phase = mod((value - lo) / span, 2.0);
-                if (phase < 0.0) phase += 2.0;
-                float mirrored = phase <= 1.0 ? phase : 2.0 - phase;
-                return lo + mirrored * span;
-            }
-
-            vec2 mirrorDockUv(vec2 uv) {
-                return vec2(
-                        mirrorIntoValidRange(uv.x, uValidDockRect.x, uValidDockRect.z),
-                        mirrorIntoValidRange(uv.y, uValidDockRect.y, uValidDockRect.w));
-            }
-
             void main() {
-                vec2 sampleDockUv = mirrorDockUv(vUv);
-                vec2 rootUv = uBackdropRect.xy + sampleDockUv * uBackdropRect.zw;
-                vec2 orientedUv = orientRootUv(rootUv);
-
-                // SurfaceTexture owns the vendor crop/flip/quarter-scale transform. Do not invert
-                // or normalize its ~0.25 scale: doing so samples outside the valid PassBlur tile.
-                vec2 textureUv = (uTexMatrix * vec4(orientedUv, 0.0, 1.0)).xy;
+                vec2 textureUv = (uWindowUvToOes * vec4(vUv, 0.0, 1.0)).xy;
+                if (any(lessThan(textureUv, vec2(0.0)))
+                        || any(greaterThan(textureUv, vec2(1.0)))) {
+                    discard;
+                }
                 vec4 sampled = texture2D(uTexture, textureUv);
                 gl_FragColor = vec4(sampled.rgb, 1.0);
             }

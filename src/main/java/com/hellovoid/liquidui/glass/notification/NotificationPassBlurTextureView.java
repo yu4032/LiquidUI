@@ -23,6 +23,9 @@ import android.view.ViewTreeObserver;
 
 import com.hellovoid.liquidui.Api101Bridge;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
+import com.hellovoid.liquidui.glass.core.DisplayTransform;
+import com.hellovoid.liquidui.glass.core.DisplayTransformEngine;
+import com.hellovoid.liquidui.glass.core.DisplayTransformSnapshot;
 import com.hellovoid.prismal.PrismalParams;
 import com.hellovoid.prismal.PrismalRenderer;
 import com.hellovoid.prismal.PrismalSampling;
@@ -85,7 +88,15 @@ final class NotificationPassBlurTextureView extends TextureView
         final int visibleHeight;
         final int sampleWidth;
         final int sampleHeight;
+        final int displayId;
+        final int displayRotation;
         final int configRotation;
+        final int windowLeft;
+        final int windowTop;
+        final int windowWidth;
+        final int windowHeight;
+        final int sampleLeft;
+        final int sampleTop;
         final int surfaceWidth;
         final int surfaceHeight;
         final int bufferWidth;
@@ -112,7 +123,10 @@ final class NotificationPassBlurTextureView extends TextureView
         BackdropSnapshot(
                 int visibleWidth, int visibleHeight,
                 int sampleWidth, int sampleHeight,
+                int displayId, int displayRotation,
                 int configRotation,
+                int windowLeft, int windowTop, int windowWidth, int windowHeight,
+                int sampleLeft, int sampleTop,
                 int surfaceWidth, int surfaceHeight,
                 int bufferWidth, int bufferHeight,
                 PrismalParams prismalParams,
@@ -127,7 +141,15 @@ final class NotificationPassBlurTextureView extends TextureView
             this.visibleHeight = visibleHeight;
             this.sampleWidth = sampleWidth;
             this.sampleHeight = sampleHeight;
+            this.displayId = displayId;
+            this.displayRotation = displayRotation;
             this.configRotation = configRotation;
+            this.windowLeft = windowLeft;
+            this.windowTop = windowTop;
+            this.windowWidth = windowWidth;
+            this.windowHeight = windowHeight;
+            this.sampleLeft = sampleLeft;
+            this.sampleTop = sampleTop;
             this.surfaceWidth = surfaceWidth;
             this.surfaceHeight = surfaceHeight;
             this.bufferWidth = bufferWidth;
@@ -800,7 +822,7 @@ final class NotificationPassBlurTextureView extends TextureView
             }
 
             ensureFboSizeExact(mapping.sampleWidth, mapping.sampleHeight);
-            renderNormalizationPass(mapping);
+            DisplayTransform displayTransform = renderNormalizationPass(mapping);
             prismalRenderer.prepareBackdrop(
                     rawTexture, mapping.sampleWidth, mapping.sampleHeight, mapping.prismalParams);
             NotificationGlassSceneSnapshot scene = compositor.latestScene();
@@ -868,8 +890,9 @@ final class NotificationPassBlurTextureView extends TextureView
             }
             if (gpuBackdropActive && !stageBDiagnosticsLogged) {
                 stageBDiagnosticsLogged = true;
-                float[] matrixSnapshot = textureMatrix.clone();
-                post(() -> logStageBDiagnostics(matrixSnapshot, mapping));
+                float[] textureMatrixSnapshot = textureMatrix.clone();
+                post(() -> logStageBDiagnostics(
+                        displayTransform, textureMatrixSnapshot, mapping));
             }
             if (gpuBackdropActive && !prismalMappingLogged) {
                 prismalMappingLogged = true;
@@ -897,7 +920,28 @@ final class NotificationPassBlurTextureView extends TextureView
         powerWindowStartedMs = now;
     }
 
-    private void renderNormalizationPass(BackdropSnapshot mapping) {
+    private DisplayTransform renderNormalizationPass(BackdropSnapshot mapping) {
+        SystemUiPassBlurBridge.Binding currentBinding = binding;
+        long rootGeneration = currentBinding != null
+                ? currentBinding.surfaceSequenceId : -1L;
+        DisplayTransform transform = DisplayTransformEngine.compose(
+                new DisplayTransformSnapshot(
+                        mapping.displayId,
+                        mapping.displayRotation,
+                        mapping.configRotation,
+                        mapping.windowLeft,
+                        mapping.windowTop,
+                        mapping.windowWidth,
+                        mapping.windowHeight,
+                        mapping.sampleLeft,
+                        mapping.sampleTop,
+                        mapping.sampleWidth,
+                        mapping.sampleHeight,
+                        mapping.bufferWidth,
+                        mapping.bufferHeight,
+                        textureMatrix,
+                        rootGeneration,
+                        inputProducerGeneration));
         GLES20.glDisable(GLES20.GL_BLEND);
         GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, rawFramebuffer);
@@ -911,18 +955,11 @@ final class NotificationPassBlurTextureView extends TextureView
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTexture);
         GLES20.glUniform1i(requireUniform(normalizeProgram, "uTexture"), 0);
         GLES20.glUniformMatrix4fv(
-                requireUniform(normalizeProgram, "uTexMatrix"), 1, false, textureMatrix, 0);
-        GLES20.glUniform4f(
-                requireUniform(normalizeProgram, "uBackdropRect"),
-                mapping.backdropX, mapping.backdropY, mapping.backdropW, mapping.backdropH);
-        GLES20.glUniform1i(
-                requireUniform(normalizeProgram, "uConfigRot"), mapping.configRotation);
-        GLES20.glUniform4f(
-                requireUniform(normalizeProgram, "uValidDockRect"),
-                mapping.validSampleLeft, mapping.validSampleBottom,
-                mapping.validSampleRight, mapping.validSampleTop);
+                requireUniform(normalizeProgram, "uWindowUvToOes"),
+                1, false, transform.windowUvToOes(), 0);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
         unbindQuad(normalizeProgram);
+        return transform;
     }
 
     private void renderCompositePass(int prismalTexture, BackdropSnapshot mapping) {
@@ -1214,6 +1251,9 @@ final class NotificationPassBlurTextureView extends TextureView
         if (winFrame == null || winFrame.width() <= 0 || winFrame.height() <= 0) return;
         int[] viewScreen = new int[2];
         getLocationOnScreen(viewScreen);
+        Display display = getDisplay();
+        int displayId = display != null ? display.getDisplayId() : 0;
+        int displayRotation = display != null ? display.getRotation() : 0;
 
         PrismalParams frameParams = portablePrismalParams;
         if (frameParams == null) return;
@@ -1239,7 +1279,15 @@ final class NotificationPassBlurTextureView extends TextureView
                 && currentSnapshot.visibleHeight == visibleHeight
                 && currentSnapshot.sampleWidth == sampleWidth
                 && currentSnapshot.sampleHeight == sampleHeight
+                && currentSnapshot.displayId == displayId
+                && currentSnapshot.displayRotation == displayRotation
                 && currentSnapshot.configRotation == configRotation
+                && currentSnapshot.windowLeft == winFrame.left
+                && currentSnapshot.windowTop == winFrame.top
+                && currentSnapshot.windowWidth == winFrame.width()
+                && currentSnapshot.windowHeight == winFrame.height()
+                && currentSnapshot.sampleLeft == viewScreen[0] - insets.left
+                && currentSnapshot.sampleTop == viewScreen[1] - insets.top
                 && currentSnapshot.surfaceWidth == boundSurfaceWidth
                 && currentSnapshot.surfaceHeight == boundSurfaceHeight
                 && currentSnapshot.bufferWidth == boundBufferWidth
@@ -1286,7 +1334,10 @@ final class NotificationPassBlurTextureView extends TextureView
         backdropSnapshot = new BackdropSnapshot(
                 visibleWidth, visibleHeight,
                 sampleWidth, sampleHeight,
+                displayId, displayRotation,
                 configRotation,
+                winFrame.left, winFrame.top, winFrame.width(), winFrame.height(),
+                viewScreen[0] - insets.left, viewScreen[1] - insets.top,
                 boundSurfaceWidth, boundSurfaceHeight,
                 boundBufferWidth, boundBufferHeight,
                 frameParams,
@@ -1338,7 +1389,9 @@ final class NotificationPassBlurTextureView extends TextureView
     }
 
     private void logStageBDiagnostics(
-            float[] matrixSnapshot, BackdropSnapshot mapping) {
+            DisplayTransform transform,
+            float[] textureMatrixSnapshot,
+            BackdropSnapshot mapping) {
         if (shuttingDown || mapping == null) return;
         View materialHost = materialHostRef.get();
         if (materialHost == null) return;
@@ -1353,17 +1406,10 @@ final class NotificationPassBlurTextureView extends TextureView
         root.getLocationOnScreen(rootScreen);
         Rect winFrame = readViewRootRectField(this, "mWinFrameInScreen");
 
-        float[] bl = mapFinalCoordinate(
-                mapping.backdropX, mapping.backdropY, mapping.configRotation, matrixSnapshot);
-        float[] br = mapFinalCoordinate(
-                mapping.backdropX + mapping.backdropW, mapping.backdropY,
-                mapping.configRotation, matrixSnapshot);
-        float[] tl = mapFinalCoordinate(
-                mapping.backdropX, mapping.backdropY + mapping.backdropH,
-                mapping.configRotation, matrixSnapshot);
-        float[] tr = mapFinalCoordinate(
-                mapping.backdropX + mapping.backdropW, mapping.backdropY + mapping.backdropH,
-                mapping.configRotation, matrixSnapshot);
+        float[] bl = transform.map(0f, 0f);
+        float[] br = transform.map(1f, 0f);
+        float[] tl = transform.map(0f, 1f);
+        float[] tr = transform.map(1f, 1f);
 
         log(" stage-B mapping rootScreen=["
                 + rootScreen[0] + "," + rootScreen[1] + "]"
@@ -1379,75 +1425,12 @@ final class NotificationPassBlurTextureView extends TextureView
                 + " validDockRect=[" + mapping.validDockLeft + "," + mapping.validDockBottom + ","
                 + mapping.validDockRight + "," + mapping.validDockTop + "]"
                 + " configRot=" + mapping.configRotation
-                + " texture matrix=" + formatTextureMatrix(matrixSnapshot)
+                + " texture matrix=" + formatTextureMatrix(textureMatrixSnapshot)
+                + " composed matrix=" + formatTextureMatrix(transform.windowUvToOes())
                 + " mapped corners bl=[" + bl[0] + "," + bl[1] + "]"
                 + " br=[" + br[0] + "," + br[1] + "]"
                 + " tl=[" + tl[0] + "," + tl[1] + "]"
                 + " tr=[" + tr[0] + "," + tr[1] + "]");
-    }
-
-    private static float[] mapFinalCoordinate(
-            float rootX, float rootY, int rotation, float[] matrix) {
-        float orientedX = rootX;
-        float orientedY = rootY;
-        if (rotation == 1) {
-            orientedX = rootY;
-            orientedY = 1f - rootX;
-        } else if (rotation == 2) {
-            orientedX = 1f - rootX;
-            orientedY = 1f - rootY;
-        } else if (rotation == 3) {
-            orientedX = 1f - rootY;
-            orientedY = rootX;
-        }
-        float[] input = compensateSurfaceTextureCropPreservingOrientation(
-                orientedX, orientedY, matrix);
-        return mapTextureCoordinate(matrix, input[0], input[1]);
-    }
-
-    private static float[] compensateSurfaceTextureCropPreservingOrientation(
-            float x, float y, float[] matrix) {
-        if (matrix == null || matrix.length < 16) return new float[]{x, y};
-        float a00 = matrix[0];
-        float a01 = matrix[4];
-        float a10 = matrix[1];
-        float a11 = matrix[5];
-        float scale0 = (float) Math.hypot(a00, a10);
-        float scale1 = (float) Math.hypot(a01, a11);
-        float determinant = a00 * a11 - a01 * a10;
-        if (scale0 <= 0.000001f || scale1 <= 0.000001f
-                || Math.abs(determinant) <= 0.000001f) {
-            return new float[]{x, y};
-        }
-
-        float o00 = a00 / scale0;
-        float o10 = a10 / scale0;
-        float o01 = a01 / scale1;
-        float o11 = a11 / scale1;
-        if (Math.abs(o00 * o01 + o10 * o11) > 0.001f) return new float[]{x, y};
-
-        float biasX = -Math.min(0f, o00) - Math.min(0f, o01);
-        float biasY = -Math.min(0f, o10) - Math.min(0f, o11);
-        float desiredX = o00 * x + o01 * y + biasX;
-        float desiredY = o10 * x + o11 * y + biasY;
-        float rhsX = desiredX - matrix[12];
-        float rhsY = desiredY - matrix[13];
-        return new float[]{
-                (a11 * rhsX - a01 * rhsY) / determinant,
-                (-a10 * rhsX + a00 * rhsY) / determinant
-        };
-    }
-
-    private static float[] mapTextureCoordinate(float[] matrix, float x, float y) {
-        if (matrix == null || matrix.length < 16) return new float[]{x, y};
-        float mappedX = matrix[0] * x + matrix[4] * y + matrix[12];
-        float mappedY = matrix[1] * x + matrix[5] * y + matrix[13];
-        float mappedW = matrix[3] * x + matrix[7] * y + matrix[15];
-        if (Math.abs(mappedW) > 0.000001f) {
-            mappedX /= mappedW;
-            mappedY /= mappedW;
-        }
-        return new float[]{mappedX, mappedY};
     }
 
     private static int createTexture2D(int width, int height) {
