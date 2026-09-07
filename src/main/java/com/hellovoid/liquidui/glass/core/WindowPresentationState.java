@@ -48,6 +48,21 @@ public final class WindowPresentationState {
         phase = Phase.SOURCE_FRESH;
     }
 
+    /**
+     * Advance only the material/profile authority. A style change invalidates every old visual
+     * authorization but deliberately preserves the already-fresh source and producer identity.
+     */
+    public synchronized Set<String> styleVersion(long profile) {
+        if (phase == Phase.TERMINAL_FAILURE || phase == Phase.DETACHED) return Set.of();
+        if (profile <= profileVersion) return Set.of();
+        profileVersion = profile;
+        Set<String> revoked = revokePresented();
+        if (phase == Phase.GLASS_ACTIVE) {
+            phase = fresh ? Phase.SOURCE_FRESH : Phase.NATIVE_FALLBACK;
+        }
+        return revoked;
+    }
+
     public synchronized Set<String> scene(long generation, Map<String, Long> nodes) {
         if (generation < sceneGeneration) return Set.of();
         sceneGeneration = generation;
