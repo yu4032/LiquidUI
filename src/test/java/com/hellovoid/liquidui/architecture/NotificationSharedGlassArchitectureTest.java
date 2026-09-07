@@ -96,6 +96,20 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
+    public void producerPauseResumeRequiresANewFreshFrameBeforeReactivation() throws Exception {
+        String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
+        int start = renderer.indexOf("void setProducerUpdatesEnabled");
+        int end = renderer.indexOf("void setVendorPassBlurEnabled");
+        assertTrue(start >= 0 && end > start);
+        String gate = renderer.substring(start, end);
+
+        assertTrue(gate.contains("producerRecovery.onGeometryInvalidated()"));
+        assertTrue(gate.contains("frameAvailable.set(false)"));
+        assertTrue(gate.contains("firstDrawLogged = false"));
+        assertTrue(renderer.contains("|| !producerUpdatesEnabled || !vendorPassBlurEnabled"));
+    }
+
+    @Test
     public void sharedRendererUsesQuarterScaleZeroCopyPassBlurAndPrismal() throws Exception {
         String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
