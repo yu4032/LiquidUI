@@ -60,5 +60,17 @@ final class PassBlurShaders {
             }
             """;
 
+    /** Final crop from the shared prepared 2D framebuffer into the visible Window host view. */
+    static final String COMPOSITE_FRAGMENT = """
+            precision highp float;
+            uniform sampler2D uTexture;
+            uniform vec4 uCropRect;
+            varying vec2 vUv;
+            void main() {
+                vec2 uv = uCropRect.xy + vUv * uCropRect.zw;
+                gl_FragColor = texture2D(uTexture, uv);
+            }
+            """;
+
     private PassBlurShaders() {}
 }
