@@ -88,6 +88,34 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
+    public void gpuProbeRecoversFromViewRootSurfaceRolloverWithoutPolling() throws Exception {
+        String probe = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGpuPassBlurStreamProbe.java");
+        String bridge = read("src/main/java/com/hellovoid/liquidui/glass/notification/SystemUiPassBlurBridge.java");
+
+        assertTrue(probe.contains("SurfaceChangedCallback"));
+        assertTrue(probe.contains("addSurfaceChangedCallback"));
+        assertTrue(probe.contains("surfaceCreated"));
+        assertTrue(probe.contains("surfaceReplaced"));
+        assertTrue(probe.contains("surfaceDestroyed"));
+        assertTrue(probe.contains("onRootSurfaceAvailable"));
+        assertTrue(probe.contains("onRootSurfaceDestroyed"));
+        assertTrue(bridge.contains("bindInTransaction"));
+        assertTrue(bridge.contains("SurfaceControl.Transaction transaction"));
+
+        assertFalse(probe.contains("postDelayed"));
+        assertFalse(probe.contains("Thread.sleep"));
+        assertFalse(probe.contains("Timer"));
+    }
+
+    @Test
+    public void failedBindDoesNotAdvanceEndpointGeneration() throws Exception {
+        String probe = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGpuPassBlurStreamProbe.java");
+        assertTrue(probe.contains("long nextGeneration = endpointGeneration + 1"));
+        assertTrue(probe.contains("endpointGeneration = next.endpointGeneration"));
+        assertFalse(probe.contains("++endpointGeneration"));
+    }
+
+    @Test
     public void topBottomRadiusAuthorityRemainsOnRowRoundness() throws Exception {
         String collector = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java");
         String registry = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationMaterialTargetRegistry.java");
