@@ -57,8 +57,6 @@ jobs:
 
           void requestScene() {
           '''
-          # Restore Java indentation after using a YAML-friendly multiline literal.
-          method = '\n'.join(('    ' + line if line and not line.startswith('    ') else line) for line in method.split('\n'))
           method = method.replace('          void requestScene() {', '    void requestScene() {')
           assert s.count(needle) == 1
           assert 'void updateGlassStyles(GlassStyleConfig style, long version)' not in s
@@ -69,15 +67,6 @@ jobs:
           assert s.count(old_guard) == 1
           s = s.replace(old_guard, new_guard, 1)
           renderer.write_text(s)
-
-          harness = Path('scripts/test-contracts.sh')
-          h = harness.read_text()
-          stub = '    public WindowKey key() { return key; }\n'
-          replacement = stub + '    public void updateGlassStyles(com.hellovoid.liquidui.config.GlassStyleConfig style, long version) {}\n'
-          assert h.count(stub) == 1
-          assert 'public void updateGlassStyles(com.hellovoid.liquidui.config.GlassStyleConfig style, long version)' not in h
-          h = h.replace(stub, replacement, 1)
-          harness.write_text(h)
           PY
       - uses: actions/setup-java@v4
         with:
@@ -95,6 +84,6 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java scripts/test-contracts.sh
+          git add src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java
           git commit -m 'feat: hot update shared SystemUI glass styles [task3-bot]'
           git push origin HEAD:feature/systemui-glass-customization
