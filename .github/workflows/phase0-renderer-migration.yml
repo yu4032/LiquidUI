@@ -50,7 +50,8 @@ jobs:
           mkdir -p "$(dirname "$target")"
           cp "$source_file" "$target"
           patch -p1 < scripts/window-renderer-phase0.patch
-          echo '3907fdbb54a08887b0d040d27535ea5aa0515ff2a753b50c104078375f2f4d75  src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java' | sha256sum -c -
+          patch -p1 < scripts/window-renderer-phase0-fix.patch
+          echo '3bff690f34ea927a482d8f48188c41b706adbe1ebf899cf0d6b41f4d07da05c8  src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java' | sha256sum -c -
           ! grep -q 'new HandlerThread(' "$target"
           ! grep -q 'AtomicBoolean drawRequested' "$target"
           ! grep -q 'NotificationPassBlurTextureView' "$target"
