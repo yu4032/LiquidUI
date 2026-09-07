@@ -13,7 +13,6 @@ import android.os.HandlerThread;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.Surface;
-import android.view.SurfaceControl;
 import android.view.View;
 
 import com.hellovoid.liquidui.Api101Bridge;
@@ -29,9 +28,11 @@ import java.util.Locale;
  * A single process-lifetime EGL consumer owns one external-OES SurfaceTexture. Its producer Surface
  * is handed to SurfaceFlinger through the exact hidden SetPassBlurSurface contract already used by
  * HyperOS. Ordinary observe/resume never recreates the BufferQueue. ViewRootImpl's exact
- * SurfaceChangedCallback authority is used to move that same producer to a replacement root in the
- * root's own SurfaceControl.Transaction. Frame callbacks are drained with updateTexImage on the EGL
- * thread so an increasing counter proves a live GPU stream before any optical renderer is enabled.
+ * SurfaceChangedCallback is used only as rollover authority; binding happens afterward in an
+ * independent transaction because injecting SetPassBlurSurface into ViewRoot's own callback
+ * transaction aborts SystemUI in libgui on this build. Frame callbacks are drained with
+ * updateTexImage on the EGL thread so an increasing counter proves a live GPU stream before any
+ * optical renderer is enabled.
  */
 final class NotificationGpuPassBlurStreamProbe {
     private static final String TAG = "[NotifGlass][GpuStream]";
@@ -51,6 +52,7 @@ final class NotificationGpuPassBlurStreamProbe {
     private volatile Object surfaceChangedCallback;
     private volatile Method removeSurfaceChangedCallback;
     private volatile View observedRootHost;
+    private volatile long rootSurfaceEpoch;
 
     private EGLDisplay eglDisplay = EGL14.EGL_NO_DISPLAY;
     private EGLContext eglContext = EGL14.EGL_NO_CONTEXT;
@@ -137,10 +139,8 @@ final class NotificationGpuPassBlurStreamProbe {
                             }
                             return null;
                         }
-                        if (("surfaceCreated".equals(name) || "surfaceReplaced".equals(name))
-                                && args != null && args.length > 0
-                                && args[0] instanceof SurfaceControl.Transaction transaction) {
-                            onRootSurfaceAvailable(rootHost, viewRoot, transaction, name);
+                        if ("surfaceCreated".equals(name) || "surfaceReplaced".equals(name)) {
+                            scheduleSurfaceRolloverRebind(rootHost, viewRoot, name);
                         } else if ("surfaceDestroyed".equals(name)) {
                             onRootSurfaceDestroyed(viewRoot);
                         }
@@ -167,6 +167,7 @@ final class NotificationGpuPassBlurStreamProbe {
         surfaceChangedCallback = null;
         removeSurfaceChangedCallback = null;
         observedRootHost = null;
+        rootSurfaceEpoch++;
         if (previousViewRoot == null || previousCallback == null || previousRemove == null) return;
         try {
             previousRemove.invoke(previousViewRoot, previousCallback);
@@ -177,6 +178,7 @@ final class NotificationGpuPassBlurStreamProbe {
 
     private void onRootSurfaceDestroyed(Object expectedViewRoot) {
         if (expectedViewRoot == null || expectedViewRoot != observedViewRoot) return;
+        rootSurfaceEpoch++;
         SystemUiPassBlurBridge.Binding current = binding;
         if (current != null) {
             SystemUiPassBlurBridge.invalidate(current);
@@ -186,12 +188,12 @@ final class NotificationGpuPassBlurStreamProbe {
         }
     }
 
-    private void onRootSurfaceAvailable(
+    private void scheduleSurfaceRolloverRebind(
             View rootHost,
             Object expectedViewRoot,
-            SurfaceControl.Transaction transaction,
             String event) {
         if (expectedViewRoot == null || expectedViewRoot != observedViewRoot) return;
+        long eventEpoch = ++rootSurfaceEpoch;
         Surface surface = producerSurface;
         if (surface == null || !surface.isValid()) {
             log("root surface " + event + " before gpu consumer ready");
@@ -204,22 +206,29 @@ final class NotificationGpuPassBlurStreamProbe {
             binding = null;
         }
 
-        long nextGeneration = endpointGeneration + 1;
-        SystemUiPassBlurBridge.Binding next = SystemUiPassBlurBridge.bindInTransaction(
-                rootHost, surface, nextGeneration, transaction);
-        if (next != null) {
-            binding = next;
-            endpointGeneration = next.endpointGeneration;
-            log("SF source rebound event=" + event
-                    + " scale=" + SOURCE_SCALE
-                    + " endpointGen=" + next.endpointGeneration
-                    + " rootLayer=" + next.rootLayerId
-                    + " surfaceSeq=" + next.surfaceSequenceId
-                    + " producerPreserved=true");
-        } else {
-            log("SF source rollover bind deferred event=" + event
-                    + " candidateGen=" + nextGeneration);
-        }
+        // The callback is only an authority signal. Post to the ViewRoot queue so Xiaomi's own
+        // surface transaction completes first, then bind the preserved producer with our own fresh
+        // transaction. No fixed delay or polling is involved.
+        rootHost.post(() -> {
+            if (expectedViewRoot != observedViewRoot || eventEpoch != rootSurfaceEpoch) return;
+            Surface readySurface = producerSurface;
+            if (readySurface == null || !readySurface.isValid()) return;
+
+            long beforeGeneration = endpointGeneration;
+            bindProducer(rootHost, readySurface);
+            SystemUiPassBlurBridge.Binding rebound = binding;
+            if (rebound != null && rebound.bound && rebound.endpointGeneration > beforeGeneration) {
+                log("SF source rebound event=" + event
+                        + " scale=" + SOURCE_SCALE
+                        + " endpointGen=" + rebound.endpointGeneration
+                        + " rootLayer=" + rebound.rootLayerId
+                        + " surfaceSeq=" + rebound.surfaceSequenceId
+                        + " producerPreserved=true");
+            } else {
+                log("SF source rollover bind deferred event=" + event
+                        + " candidateGen=" + (endpointGeneration + 1));
+            }
+        });
     }
 
     private static Class<?> findSurfaceChangedCallbackType(Class<?> viewRootType)
