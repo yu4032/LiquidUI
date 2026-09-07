@@ -46,9 +46,16 @@ mapfile -t PURE_MAIN < <(
        "$ROOT/src/main/java/com/hellovoid/liquidui/reflect" \
        "$ROOT/src/main/java/com/hellovoid/liquidui/config" \
        "$ROOT/src/main/java/com/hellovoid/liquidui/diagnostics" \
-       "$ROOT/src/main/java/com/hellovoid/liquidui/glass/core" \
        -name '*.java' -print | sort
 )
+# Phase 0 deliberately moves Android-owned Window rendering classes into glass/core. Keep the
+# fast contract layer SDK-independent by compiling only core classes that do not import android.*;
+# the complete core (including SurfaceControl/EGL/View classes) is still compiled by Gradle below.
+while IFS= read -r f; do
+  if ! grep -qE '^import android\.' "$f"; then
+    PURE_MAIN+=("$f")
+  fi
+done < <(find "$ROOT/src/main/java/com/hellovoid/liquidui/glass/core" -name '*.java' -print | sort)
 for f in NotificationGlassNode.java NotificationGlassSceneSnapshot.java NotificationGlassSceneState.java ZeroCopyProducerRecoveryState.java Miuix307BackdropMapping.java NotificationGlassActivityState.java NotificationShadeBlurPolicy.java NotificationPassBlurAuthorityState.java NotificationGlassPresentationState.java; do
   PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/notification/$f")
 done
