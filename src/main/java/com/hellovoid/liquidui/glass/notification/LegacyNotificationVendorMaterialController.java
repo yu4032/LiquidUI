@@ -8,14 +8,21 @@ import java.lang.reflect.Method;
 import java.util.WeakHashMap;
 
 /**
- * Dormant compatibility controller retained only by the preserved OES/Prismal session path.
- * The active notification material hook never constructs or references this legacy authority.
+ * Material handoff controller for the shared notification glass scene.
+ *
+ * The verified 2dp native card PassBlur stays configured underneath the shared renderer. Shared
+ * presentation only hides the background View with alpha=0. If the GPU source is lost, restoring
+ * alpha reveals the already-live native fallback immediately; no vendor blur reconfiguration is
+ * required on the failure path.
  */
 final class LegacyNotificationVendorMaterialController {
     private final NotificationGlassNodeCollector collector;
     private final Class<?> rowClass;
     private final Field wrapperViewField;
     private final Field wrapperRowField;
+    // Retained for constructor compatibility with the older dormant implementation. The shared
+    // handoff deliberately does not call these methods because doing so would destroy the 2dp
+    // fallback while the shared scene is active.
     private final Method disableBlur;
     private final Method clearBlend;
 
@@ -47,8 +54,6 @@ final class LegacyNotificationVendorMaterialController {
             Object backgroundObject = collector.backgroundView(row);
             if (!(backgroundObject instanceof View background)) return;
             backgroundAlpha.putIfAbsent(background, background.getAlpha());
-            disableBlur.invoke(null, 0, background);
-            clearBlend.invoke(null, background);
             if (background.getAlpha() != 0f) background.setAlpha(0f);
         } catch (Throwable ignored) {
         }
