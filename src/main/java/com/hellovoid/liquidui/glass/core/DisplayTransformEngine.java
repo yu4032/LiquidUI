@@ -2,6 +2,9 @@ package com.hellovoid.liquidui.glass.core;
 
 /** Sole policy for composing Window geometry, orientation, and SurfaceTexture transforms. */
 public final class DisplayTransformEngine {
+    private static final float EPSILON = 0.000001f;
+    private static final float ORTHOGONAL_EPSILON = 0.001f;
+
     private DisplayTransformEngine() {}
 
     public static DisplayTransform compose(DisplayTransformSnapshot snapshot) {
@@ -18,20 +21,54 @@ public final class DisplayTransformEngine {
                 windowW, 0f, windowX,
                 0f, windowH, windowY);
 
-        // ViewRoot's configRotation is the buffer transform hint: it describes how SurfaceFlinger
-        // rotates the producer buffer to present it in the Window. This engine maps in the reverse
-        // direction (Window UV -> producer/OES UV), so applying the hint forward double-signs the
-        // two landscape orientations. Invert the quarter-turn here, then let SurfaceTexture's
-        // authoritative matrix apply its own crop/flip transform last.
-        int inverseBufferRotation = (4 - snapshot.configRotation()) & 3;
-        float[] windowToBuffer = orientation(inverseBufferRotation);
+        // Match LiquidDock's validated Stage-B contract. ViewRoot configRotation maps current
+        // root/window UV into the producer's oriented domain. SurfaceTexture may additionally
+        // contain signed-permutation orientation plus crop scale/translation. The latter describes
+        // BufferQueue crop metadata, not Window geometry: carrying it into the Window transform
+        // makes its translation rotate into opposite vertical offsets at ROTATION_90/270.
+        // Normalize an orthogonal SurfaceTexture matrix down to orientation only. If a future
+        // producer supplies a real shear/non-orthogonal transform, preserve the framework matrix
+        // intact rather than guessing how to neutralize it.
+        float[] surfaceOrientation = orientationOnlyOrFramework(
+                snapshot.surfaceTextureMatrix());
+        float[] rootToProducer = orientation(snapshot.configRotation());
         float[] finalMatrix = multiply(
-                snapshot.surfaceTextureMatrix(),
-                multiply(windowToBuffer, hostToWindow));
+                surfaceOrientation,
+                multiply(rootToProducer, hostToWindow));
         return new DisplayTransform(
                 finalMatrix,
                 snapshot.rootGeneration(),
                 snapshot.producerGeneration());
+    }
+
+    private static float[] orientationOnlyOrFramework(float[] matrix) {
+        float c0x = matrix[0];
+        float c0y = matrix[1];
+        float c1x = matrix[4];
+        float c1y = matrix[5];
+        float scale0 = length(c0x, c0y);
+        float scale1 = length(c1x, c1y);
+        float determinant = c0x * c1y - c1x * c0y;
+        if (scale0 <= EPSILON || scale1 <= EPSILON || Math.abs(determinant) <= EPSILON) {
+            return matrix.clone();
+        }
+
+        float o0x = c0x / scale0;
+        float o0y = c0y / scale0;
+        float o1x = c1x / scale1;
+        float o1y = c1y / scale1;
+        float dot = o0x * o1x + o0y * o1y;
+        if (Math.abs(dot) > ORTHOGONAL_EPSILON) return matrix.clone();
+
+        float biasX = -Math.min(0f, o0x) - Math.min(0f, o1x);
+        float biasY = -Math.min(0f, o0y) - Math.min(0f, o1y);
+        return affine(
+                o0x, o1x, biasX,
+                o0y, o1y, biasY);
+    }
+
+    private static float length(float x, float y) {
+        return (float) Math.sqrt(x * x + y * y);
     }
 
     private static float[] orientation(int rotation) {
