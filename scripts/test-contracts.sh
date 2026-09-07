@@ -48,11 +48,11 @@ mapfile -t PURE_MAIN < <(
        "$ROOT/src/main/java/com/hellovoid/liquidui/diagnostics" \
        -name '*.java' -print | sort
 )
-# Phase 0 deliberately moves Android-owned Window rendering classes into glass/core. Keep the
-# fast contract layer SDK-independent by compiling only core classes that do not import android.*;
-# the complete core (including SurfaceControl/EGL/View classes) is still compiled by Gradle below.
+# Phase 0 deliberately moves Android/Prismal-owned Window rendering classes into glass/core.
+# Keep this fast layer dependency-free: compile only core state/model classes that need neither
+# Android SDK nor Prismal. The complete core is still compiled and tested by Gradle below.
 while IFS= read -r f; do
-  if ! grep -qE '^import android\.' "$f"; then
+  if ! grep -qE '^import (android\.|com\.hellovoid\.prismal\.)' "$f"; then
     PURE_MAIN+=("$f")
   fi
 done < <(find "$ROOT/src/main/java/com/hellovoid/liquidui/glass/core" -name '*.java' -print | sort)
