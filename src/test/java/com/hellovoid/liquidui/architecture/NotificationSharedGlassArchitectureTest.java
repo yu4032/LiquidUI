@@ -25,7 +25,7 @@ public class NotificationSharedGlassArchitectureTest {
         assertTrue(runtime.contains("SystemUiGlassCore glassCore"));
         assertTrue(runtime.contains("new NotificationGlassAdapter("));
         assertFalse(runtime.contains("NotificationGlassSession"));
-        assertTrue(adapter.contains("core.sessionFor(stack)"));
+        assertTrue(adapter.contains("glassCore.sessionFor(stack)"));
     }
 
     @Test

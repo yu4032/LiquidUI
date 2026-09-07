@@ -3,7 +3,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-mkdir -p "$WORK/stubs/org/junit" "$WORK/stubs/android/os" "$WORK/classes"
+mkdir -p "$WORK/stubs/org/junit" "$WORK/stubs/android/os" "$WORK/stubs/android/view" \
+         "$WORK/stubs/com/hellovoid/liquidui/glass/core" "$WORK/classes"
 cat > "$WORK/stubs/org/junit/Test.java" <<'JAVA'
 package org.junit;
 import java.lang.annotation.*;
@@ -44,6 +45,41 @@ public class HandlerThread {
     public boolean quitSafely() { return true; }
 }
 JAVA
+cat > "$WORK/stubs/android/view/Display.java" <<'JAVA'
+package android.view;
+public class Display {
+    public static final int DEFAULT_DISPLAY = 0;
+    public int getDisplayId() { return DEFAULT_DISPLAY; }
+}
+JAVA
+cat > "$WORK/stubs/android/view/View.java" <<'JAVA'
+package android.view;
+public class View {
+    public View getRootView() { return this; }
+    public Display getDisplay() { return null; }
+}
+JAVA
+cat > "$WORK/stubs/com/hellovoid/liquidui/glass/core/SystemUiPassBlurBridge.java" <<'JAVA'
+package com.hellovoid.liquidui.glass.core;
+import android.view.View;
+final class SystemUiPassBlurBridge {
+    static Object getViewRootImpl(View view) { return null; }
+}
+JAVA
+cat > "$WORK/stubs/com/hellovoid/liquidui/glass/core/WindowGlassSession.java" <<'JAVA'
+package com.hellovoid.liquidui.glass.core;
+import android.os.Handler;
+import java.util.concurrent.atomic.AtomicBoolean;
+public class WindowGlassSession implements AutoCloseable {
+    private final WindowKey key;
+    private final AtomicBoolean closed = new AtomicBoolean();
+    public WindowGlassSession(WindowKey key) { this(key, null); }
+    public WindowGlassSession(WindowKey key, Handler renderHandler) { this.key = key; }
+    public WindowKey key() { return key; }
+    public boolean isClosed() { return closed.get(); }
+    @Override public void close() { closed.set(true); }
+}
+JAVA
 cat > "$WORK/TestRunner.java" <<'JAVA'
 import java.lang.reflect.*;
 import org.junit.Test;
@@ -71,7 +107,7 @@ mapfile -t PURE_MAIN < <(
 )
 # Phase 0 deliberately moves Android/Prismal-owned Window rendering classes into glass/core.
 # Keep this fast layer mostly dependency-free: compile core state/model classes plus the process
-# core with tiny android.os stubs. The complete Android/EGL/Prismal core is compiled by Gradle.
+# core against compile-only UI/session stubs. Real Android/renderer ownership is compiled by Gradle.
 while IFS= read -r f; do
   if ! grep -qE '^import (android\.|com\.hellovoid\.prismal\.)' "$f"; then
     PURE_MAIN+=("$f")
@@ -79,12 +115,17 @@ while IFS= read -r f; do
 done < <(find "$ROOT/src/main/java/com/hellovoid/liquidui/glass/core" -name '*.java' -print | sort)
 PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/core/SystemUiGlassCore.java")
 for f in NotificationGlassNode.java NotificationGlassSceneSnapshot.java NotificationGlassSceneState.java ZeroCopyProducerRecoveryState.java Miuix307BackdropMapping.java NotificationGlassActivityState.java NotificationShadeBlurPolicy.java NotificationPassBlurAuthorityState.java NotificationGlassPresentationState.java; do
-  PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/notification/$f")
+  if [[ -f "$ROOT/src/main/java/com/hellovoid/liquidui/glass/notification/$f" ]]; then
+    PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/notification/$f")
+  fi
 done
 mapfile -t TESTS < <(find "$ROOT/src/test/java" -name '*.java' -print | sort)
 javac --release 17 -d "$WORK/classes" \
   "$WORK/stubs/org/junit/Test.java" "$WORK/stubs/org/junit/Assert.java" \
   "$WORK/stubs/android/os/Looper.java" "$WORK/stubs/android/os/Handler.java" "$WORK/stubs/android/os/HandlerThread.java" \
+  "$WORK/stubs/android/view/Display.java" "$WORK/stubs/android/view/View.java" \
+  "$WORK/stubs/com/hellovoid/liquidui/glass/core/SystemUiPassBlurBridge.java" \
+  "$WORK/stubs/com/hellovoid/liquidui/glass/core/WindowGlassSession.java" \
   "$WORK/TestRunner.java" "${PURE_MAIN[@]}" "${TESTS[@]}"
 mapfile -t TEST_CLASSES < <(find "$ROOT/src/test/java" -name '*Test.java' -print | sort | sed -e "s#^$ROOT/src/test/java/##" -e 's#/#.#g' -e 's#\.java$##')
 (cd "$ROOT" && java -cp "$WORK/classes" TestRunner "${TEST_CLASSES[@]}")

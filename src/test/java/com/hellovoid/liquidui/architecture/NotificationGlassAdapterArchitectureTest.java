@@ -52,7 +52,7 @@ public final class NotificationGlassAdapterArchitectureTest {
         assertTrue(collector.contains("GlassMaterialProfile.CARD"));
         assertTrue(collector.contains("lifecycleGeneration"));
         assertTrue(collector.contains("zOrder"));
-        assertTrue(adapter.contains("core.sessionFor(stack)"));
+        assertTrue(adapter.contains("glassCore.sessionFor(stack)"));
         assertTrue(adapter.contains("lifecycleGeneration"));
         assertTrue(adapter.contains("authorizedNodeIds"));
         assertTrue(adapter.contains("revokedNodeIds"));
