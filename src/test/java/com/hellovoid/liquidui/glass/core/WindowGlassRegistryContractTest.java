@@ -65,7 +65,8 @@ public class WindowGlassRegistryContractTest {
 
     @Test
     public void globalCoreDelegatesToOneRegistryAndClosesEverySession() {
-        SystemUiGlassCore core = new SystemUiGlassCore(WindowGlassSession::new);
+        SystemUiGlassCore core = new SystemUiGlassCore(
+                (WindowGlassRegistry.Factory) WindowGlassSession::new);
         WindowGlassSession first = core.sessionFor(new Object(), 0);
         WindowGlassSession second = core.sessionFor(new Object(), 1);
 
