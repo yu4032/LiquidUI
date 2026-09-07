@@ -127,22 +127,19 @@ public class NotificationSharedGlassArchitectureTest {
     }
 
     @Test
-    public void blackBackdropProbeComparesRawMatrixAndStageBOnGpu() throws Exception {
+    public void validatedBackdropMappingPreservesSurfaceTextureCropAndCorrectsRotation() throws Exception {
         String renderer = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationPassBlurTextureView.java");
         String shaders = read("src/main/java/com/hellovoid/liquidui/glass/notification/Miuix307PassBlurShaders.java");
         String material = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassMaterial.java");
 
-        assertTrue(shaders.contains("MAPPING_PROBE_ENABLED = true"));
-        assertTrue(shaders.contains("vUv.x < 0.333333"));
-        assertTrue(shaders.contains("vUv.x < 0.666667"));
-        assertTrue(shaders.contains("texture2D(uTexture, rawUv)"));
-        assertTrue(shaders.contains("texture2D(uTexture, matrixUv)"));
-        assertTrue(shaders.contains("texture2D(uTexture, stageBUv)"));
-        assertTrue(shaders.contains("vec4(sampled.rgb, 1.0)"));
-        assertTrue(material.contains("MAPPING_PROBE_IDENTITY = true"));
-        assertTrue(material.contains("b.displacementScale = 0f"));
-        assertTrue(material.contains("b.chromaticAberration = 0f"));
-        assertTrue(material.contains("b.blurRadiusPx = 0f"));
+        assertTrue(shaders.contains("return vec2(rootUv.y, 1.0 - rootUv.x);"));
+        assertTrue(shaders.contains("vec2 orientedUv = orientRootUv(rootUv);"));
+        assertTrue(shaders.contains("uTexMatrix * vec4(orientedUv, 0.0, 1.0)"));
+        assertFalse(shaders.contains("compensateSurfaceTextureCropPreservingOrientation"));
+        assertFalse(shaders.contains("MAPPING_PROBE_ENABLED = true"));
+        assertFalse(shaders.contains("panelUv"));
+        assertTrue(material.contains("b.displacementScale = 1.70f"));
+        assertTrue(material.contains("b.chromaticAberration = 42f"));
         assertFalse(renderer.contains("glReadPixels"));
     }
 
