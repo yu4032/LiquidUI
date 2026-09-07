@@ -1,11 +1,16 @@
 package com.hellovoid.liquidui.glass.notification;
 
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewParent;
+
+import com.hellovoid.liquidui.glass.core.GlassMaterialProfile;
+import com.hellovoid.liquidui.glass.core.GlassNode;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
-/** Geometry adapter retained for future Prismal pass-texture integration. */
+/** Geometry-only adapter from the pinned SystemUI notification row contract to generic GlassNode. */
 final class NotificationGlassNodeCollector {
     private static final String NATIVE_CARD_RADIUS_NAME = "notification_item_bg_radius";
     private static final float NATIVE_CARD_RADIUS_FALLBACK_DP = 24f;
@@ -50,7 +55,12 @@ final class NotificationGlassNodeCollector {
         return rowClass.isInstance(row) ? backgroundNormalField.get(row) : null;
     }
 
-    NotificationGlassNode collect(Object rowObject, View host) {
+    GlassNode collect(
+            Object rowObject,
+            View host,
+            String id,
+            long lifecycleGeneration,
+            int zOrder) {
         if (!rowClass.isInstance(rowObject) || host == null || !host.isAttachedToWindow()) return null;
         View row = (View) rowObject;
         if (!row.isAttachedToWindow() || !row.isShown() || row.getAlpha() <= 0.001f) return null;
@@ -92,17 +102,54 @@ final class NotificationGlassNodeCollector {
 
             // Match NotificationUtil#setRoundRect's stable native card silhouette instead of
             // ExpandableNotificationRow#getTop/BottomCornerRadius. Those accessors multiply the
-            // base radius by transient row roundness, which collapses the shared GPU glass radius
-            // at rest and only grows again while the row is being dragged.
+            // base radius by transient row roundness, which collapses the glass radius at rest.
             float radius = nativeCardRadiusPx(background);
             radius = Math.min(radius, Math.min(actualWidth, visibleHeight) * 0.5f);
-            float opacity = row.getAlpha();
-            return new NotificationGlassNode(
-                    left, top, actualWidth, visibleHeight,
-                    radius, radius, radius, radius, opacity);
+            return new GlassNode(
+                    id,
+                    lifecycleGeneration,
+                    left,
+                    top,
+                    actualWidth,
+                    visibleHeight,
+                    radius,
+                    radius,
+                    radius,
+                    radius,
+                    row.getAlpha(),
+                    zOrder,
+                    GlassMaterialProfile.CARD);
         } catch (Throwable ignored) {
             return null;
         }
+    }
+
+    /** Temporary compile bridge for the pre-Task-7 session; deleted with legacy scene types. */
+    NotificationGlassNode collect(Object rowObject, View host) {
+        GlassNode node = collect(
+                rowObject,
+                host,
+                "legacy-notification:" + Integer.toHexString(System.identityHashCode(rowObject)),
+                0L,
+                visualZOrder(rowObject));
+        if (node == null) return null;
+        return new NotificationGlassNode(
+                node.left(), node.top(), node.width(), node.height(),
+                node.topLeftRadius(), node.topRightRadius(),
+                node.bottomRightRadius(), node.bottomLeftRadius(), node.opacity());
+    }
+
+    int visualZOrder(Object rowObject) {
+        if (!(rowObject instanceof View row)) return 0;
+        int childIndex = 0;
+        ViewParent parent = row.getParent();
+        if (parent instanceof ViewGroup group) {
+            childIndex = Math.max(0, group.indexOfChild(row));
+        }
+        float z = row.getZ();
+        if (!Float.isFinite(z)) z = 0f;
+        int zBucket = Math.round(Math.max(-1000f, Math.min(1000f, z)) * 1000f);
+        return zBucket * 10_000 + Math.min(9_999, childIndex);
     }
 
     private static float nativeCardRadiusPx(View background) {
