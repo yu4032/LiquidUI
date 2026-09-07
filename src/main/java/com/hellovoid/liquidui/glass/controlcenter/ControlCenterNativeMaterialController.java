@@ -68,19 +68,29 @@ public final class ControlCenterNativeMaterialController implements NativeMateri
     }
 
     @Override
-    public void suppress(View host, long generation) throws Throwable {
+    public void suppress(View host, long generation) {
         State state = states.computeIfAbsent(host, ignored -> new State());
         state.generation = generation;
-        applySuppression(state);
-        state.suppressed = true;
+        try {
+            applySuppression(state);
+            state.suppressed = true;
+        } catch (Throwable error) {
+            state.suppressed = false;
+            throw materialFailure("suppress", error);
+        }
     }
 
     @Override
-    public void restore(View host, long generation) throws Throwable {
+    public void restore(View host, long generation) {
         State state = states.get(host);
         if (state == null || state.generation != generation) return;
-        if (state.suppressed) restoreNativeFinalState(state);
-        state.suppressed = false;
+        try {
+            if (state.suppressed) restoreNativeFinalState(state);
+        } catch (Throwable error) {
+            throw materialFailure("restore", error);
+        } finally {
+            state.suppressed = false;
+        }
     }
 
     @Override
@@ -138,6 +148,11 @@ public final class ControlCenterNativeMaterialController implements NativeMateri
         if (iconWrapper == null) throw new IllegalStateException("missing MiuiQSIconViewImpl");
         Object value = animatorField.get(iconWrapper);
         if (value instanceof ObjectAnimator animator) animator.cancel();
+    }
+
+    private static RuntimeException materialFailure(String operation, Throwable error) {
+        if (error instanceof RuntimeException runtime) return runtime;
+        return new IllegalStateException("QS native material " + operation + " failed", error);
     }
 
     private static <T extends java.lang.reflect.AccessibleObject> T accessible(T value) {
