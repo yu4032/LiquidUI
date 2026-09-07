@@ -180,6 +180,7 @@ final class NotificationGlassSession implements NotificationPassBlurTextureView.
                     + " swapSeq=" + swapSequence
                     + " stateSourceGen=" + presentationState.sourceGeneration()
                     + " stateSceneGen=" + presentationState.sceneGeneration());
+            renderer.requestActivationRetry();
             return;
         }
 
