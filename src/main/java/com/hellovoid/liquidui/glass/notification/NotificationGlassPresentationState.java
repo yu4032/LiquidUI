@@ -27,13 +27,19 @@ final class NotificationGlassPresentationState {
     private boolean fresh;
 
     synchronized void sourceBound(long generation) {
+        if (phase == Phase.TERMINAL_FAILURE) return;
         sourceGeneration = generation;
         fresh = false;
         phase = Phase.SOURCE_BOUND;
     }
 
     synchronized void freshFrame(long generation) {
-        if (generation != sourceGeneration || phase == Phase.TERMINAL_FAILURE) return;
+        if (generation != sourceGeneration
+                || phase == Phase.SOURCE_LOST
+                || phase == Phase.FALLBACK_NATIVE
+                || phase == Phase.TERMINAL_FAILURE) {
+            return;
+        }
         fresh = true;
         phase = Phase.SOURCE_FRESH;
     }
@@ -47,7 +53,7 @@ final class NotificationGlassPresentationState {
     }
 
     synchronized ActivationToken swapSucceeded(long source, long scene, long swap) {
-        if (phase == Phase.TERMINAL_FAILURE
+        if ((phase != Phase.SOURCE_FRESH && phase != Phase.GLASS_ACTIVE)
                 || source != sourceGeneration
                 || scene != sceneGeneration
                 || !fresh
@@ -75,6 +81,7 @@ final class NotificationGlassPresentationState {
     }
 
     synchronized void fallbackNative() {
+        if (phase == Phase.TERMINAL_FAILURE) return;
         fresh = false;
         phase = Phase.FALLBACK_NATIVE;
     }
