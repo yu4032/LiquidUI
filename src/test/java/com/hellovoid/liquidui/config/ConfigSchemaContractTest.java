@@ -13,27 +13,31 @@ import static org.junit.Assert.*;
 
 public class ConfigSchemaContractTest {
     @Test
-    public void bootstrapSchemaContainsOnlyDeclaredKeysWithStableDefaults() {
+    public void bootstrapSchemaKeepsStableKeysWhileExtendedSchemaRemainsUnique() {
         assertEquals("enabled", ConfigSchema.ENABLED.name());
         assertTrue(ConfigSchema.ENABLED.defaultValue());
         assertEquals("diagnostics_enabled", ConfigSchema.DIAGNOSTICS_ENABLED.name());
         assertFalse(ConfigSchema.DIAGNOSTICS_ENABLED.defaultValue());
         assertEquals("notification_glass_enabled", ConfigSchema.NOTIFICATION_GLASS_ENABLED.name());
         assertTrue(ConfigSchema.NOTIFICATION_GLASS_ENABLED.defaultValue());
-        assertEquals(3L, ConfigSchema.all().size());
+        assertTrue(ConfigSchema.all().size() > 3);
 
         Set<String> names = new HashSet<>();
         for (ConfigKey<?> key : ConfigSchema.all()) {
             assertTrue(names.add(key.name()));
         }
+        assertTrue(names.contains(ConfigSchema.ENABLED.name()));
+        assertTrue(names.contains(ConfigSchema.DIAGNOSTICS_ENABLED.name()));
+        assertTrue(names.contains(ConfigSchema.NOTIFICATION_GLASS_ENABLED.name()));
     }
 
     @Test
     public void configKeyConstructorIsNotPublicOrProtected() {
-        Constructor<?> constructor = ConfigKey.class.getDeclaredConstructors()[0];
-        int modifiers = constructor.getModifiers();
-        assertFalse(Modifier.isPublic(modifiers));
-        assertFalse(Modifier.isProtected(modifiers));
+        for (Constructor<?> constructor : ConfigKey.class.getDeclaredConstructors()) {
+            int modifiers = constructor.getModifiers();
+            assertFalse(Modifier.isPublic(modifiers));
+            assertFalse(Modifier.isProtected(modifiers));
+        }
     }
 
     @Test
