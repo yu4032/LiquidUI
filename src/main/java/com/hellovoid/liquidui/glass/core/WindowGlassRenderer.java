@@ -21,6 +21,7 @@ import android.view.View;
 import android.view.ViewTreeObserver;
 
 import com.hellovoid.liquidui.Api101Bridge;
+import com.hellovoid.liquidui.config.GlassStyleConfig;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
 import com.hellovoid.prismal.PrismalParams;
 import com.hellovoid.prismal.PrismalRenderer;
@@ -343,7 +344,32 @@ final class WindowGlassRenderer extends TextureView
         return producerRecovery.isActivationExhausted();
     }
 
-    void requestScene() {
+    void updateGlassStyles(GlassStyleConfig style, long version) {
+    if (shuttingDown || style == null) return;
+    if (!materialProfiles.update(style, version)) return;
+
+    portablePrismalParams = materialProfiles.paramsFor(GlassMaterialProfile.CARD);
+    if (style.samplingAutoEnabled()) {
+        topSamplingExtraPx = style.samplingExtraTopPx();
+        bottomSamplingExtraPx = style.samplingExtraBottomPx();
+        leftSamplingExtraPx = style.samplingExtraLeftPx();
+        rightSamplingExtraPx = style.samplingExtraRightPx();
+    } else {
+        topSamplingExtraPx = Integer.MIN_VALUE;
+        bottomSamplingExtraPx = Integer.MIN_VALUE;
+        leftSamplingExtraPx = Integer.MIN_VALUE;
+        rightSamplingExtraPx = Integer.MIN_VALUE;
+    }
+
+    Set<String> revoked = presentationState.styleVersion(version);
+    dispatchPresentation(Set.of(), revoked);
+    preparedBackdropReady = false;
+    preparedBackdropSnapshot = null;
+    updateBackdropMapping();
+    frameCoordinator.requestScene();
+}
+
+void requestScene() {
         if (shuttingDown) return;
         updateBackdropMapping();
         GlassSceneSnapshot scene = sceneState.latest();
@@ -871,7 +897,7 @@ final class WindowGlassRenderer extends TextureView
                     || preparedProducerGeneration != inputProducerGeneration
                     || preparedBackdropSnapshot != mapping;
             if (mustPrepareBackdrop) {
-                if (!consumedFreshSource && !sourcePending) return;
+                if (!consumedFreshSource && !sourcePending && !scenePending) return;
                 ensureFboSizeExact(mapping.sampleWidth, mapping.sampleHeight);
                 displayTransform = renderNormalizationPass(mapping);
                 prismalRenderer.prepareBackdrop(
