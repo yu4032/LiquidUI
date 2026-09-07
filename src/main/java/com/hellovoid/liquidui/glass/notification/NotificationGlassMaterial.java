@@ -2,7 +2,7 @@ package com.hellovoid.liquidui.glass.notification;
 
 import com.hellovoid.prismal.PrismalParams;
 
-/** Exact LiquidDock/Prismal v1.0.6 default material used for the first notification PassBlur test. */
+/** Exaggerated refraction-only profile for the first shared notification GPU validation build. */
 final class NotificationGlassMaterial {
     private NotificationGlassMaterial() {}
 
@@ -10,31 +10,31 @@ final class NotificationGlassMaterial {
         float d = Math.max(0.1f, density);
         PrismalParams.Builder b = PrismalParams.builder();
         b.ior = 1.55f;
-        b.glassThicknessPx = 18f * d;
-        b.normalStrength = 1.15f;
-        b.displacementScale = 1.15f;
-        b.heightTransitionWidthPx = 19f * d;
+        b.glassThicknessPx = 22f * d;
+        b.normalStrength = 1.35f;
+        b.displacementScale = 1.70f;
+        b.heightTransitionWidthPx = 20f * d;
         b.sminSmoothingPx = 1.8f;
         b.refractionInsetPx = 20f;
         b.edgeRefractionFalloff = 4f;
-        b.liquidDome = 1.30f;
-        b.fresnelReflect = 1.98f;
-        b.lensRefractionScale = 1.30f;
-        b.lensDepthEffect = 1f;
-        b.chromaticAberration = 26f;
+        b.liquidDome = 1.35f;
+        b.fresnelReflect = 1.0f;
+        b.lensRefractionScale = 2.20f;
+        b.lensDepthEffect = 1.0f;
+        b.chromaticAberration = 42f;
         b.dispersionR = 1f;
         b.dispersionB = 1f;
-        b.vibrancy = 1.28f;
-        b.plainHighlight = 0.08f;
-        b.brightness = 1.08f;
-        b.highlightWidth = 1f;
+        b.vibrancy = 1.30f;
+        b.plainHighlight = 0f;
+        b.brightness = 1.0f;
+        b.highlightWidth = 0f;
         b.lightDirX = -0.5f;
         b.lightDirY = -0.8f;
-        b.specular = 1.52f;
+        b.specular = 0f;
         b.shininess = 88f;
-        b.rimStrength = 1.22f;
-        b.causticIntensity = 0.28f;
-        b.shadowSoftness = 10f;
+        b.rimStrength = 0f;
+        b.causticIntensity = 0f;
+        b.shadowSoftness = 0f;
         b.transmittance = 1f;
         b.backdropScaleX = 1f;
         b.backdropScaleY = 1f;
@@ -42,12 +42,12 @@ final class NotificationGlassMaterial {
         b.blurRadiusPx = 2f;
         b.tintR = 0f;
         b.tintG = 0f;
-        b.tintB = 1f;
-        b.tintA = 35f / 255f;
-        b.shadowR = 1f;
-        b.shadowG = 1f;
-        b.shadowB = 1f;
-        b.shadowA = 35f / 255f;
+        b.tintB = 0f;
+        b.tintA = 0f;
+        b.shadowR = 0f;
+        b.shadowG = 0f;
+        b.shadowB = 0f;
+        b.shadowA = 0f;
         b.showNormals = false;
         return b.build();
     }
