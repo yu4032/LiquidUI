@@ -1,5 +1,0 @@
---- a/src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java
-+++ b/src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java
-@@ -1363 +1363 @@
--        BackdropMapping.Result window = BackdropMapping.compute(
-+        BackdropMapping.Result dock = BackdropMapping.compute(
