@@ -69,50 +69,6 @@ final class SystemUiPassBlurBridge {
                         long endpointGeneration) {
         if (materialHost == null || rootSurface == null || producerSurface == null) return null;
         if (!rootSurface.isValid()) return null;
-        try (SurfaceControl.Transaction transaction = new SurfaceControl.Transaction()) {
-            Binding binding = bindInTransaction(
-                    materialHost, rootSurface, producerSurface, endpointGeneration, transaction);
-            if (binding != null) {
-                transaction.apply();
-            }
-            return binding;
-        } catch (Throwable error) {
-            log("bind unavailable " + error);
-            return null;
-        }
-    }
-
-    /**
-     * Bind into ViewRootImpl's own surface-created/replaced transaction. The caller owns and applies
-     * the transaction; using the same transaction makes the PassBlur producer follow the new root
-     * atomically instead of racing a stale SurfaceControl between traversals.
-     */
-    static Binding bindInTransaction(
-            View materialHost,
-            Surface producerSurface,
-            long endpointGeneration,
-            SurfaceControl.Transaction transaction) {
-        if (materialHost == null || producerSurface == null || transaction == null) return null;
-        try {
-            SurfaceControl rootSurface = resolveRootSurface(materialHost);
-            return bindInTransaction(
-                    materialHost, rootSurface, producerSurface, endpointGeneration, transaction);
-        } catch (Throwable error) {
-            log("bind-in-transaction unavailable root resolution " + error);
-            return null;
-        }
-    }
-
-    private static Binding bindInTransaction(
-            View materialHost,
-            SurfaceControl rootSurface,
-            Surface producerSurface,
-            long endpointGeneration,
-            SurfaceControl.Transaction transaction) {
-        if (materialHost == null || rootSurface == null || producerSurface == null || transaction == null) {
-            return null;
-        }
-        if (!rootSurface.isValid()) return null;
         try {
             Object viewRoot = getViewRootImpl(materialHost);
             if (viewRoot == null) {
@@ -135,8 +91,15 @@ final class SystemUiPassBlurBridge {
             Method setUpdateTextureFlag = tx.getMethod(
                     "setUpdateTextureFlag", SurfaceControl.class, boolean.class, float.class);
 
-            setPassBlurSurface.invoke(transaction, hostRootSurface, producerSurface);
-            setUpdateTextureFlag.invoke(transaction, hostRootSurface, true, SCALE);
+            // Xiaomi's native PassBlur transaction must not be injected into ViewRootImpl's own
+            // surface-created/replaced transaction. Runtime evidence shows that doing so aborts
+            // SystemUI inside libgui::Transaction::setPassBlurSurface. Bind only from a fresh,
+            // caller-owned transaction after the root lifecycle callback has completed.
+            try (SurfaceControl.Transaction transaction = new SurfaceControl.Transaction()) {
+                setPassBlurSurface.invoke(transaction, hostRootSurface, producerSurface);
+                setUpdateTextureFlag.invoke(transaction, hostRootSurface, true, SCALE);
+                transaction.apply();
+            }
 
             Binding binding = new Binding(
                     hostRootSurface,
