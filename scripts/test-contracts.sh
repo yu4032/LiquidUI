@@ -69,6 +69,7 @@ JAVA
 cat > "$WORK/stubs/com/hellovoid/liquidui/glass/core/WindowGlassSession.java" <<'JAVA'
 package com.hellovoid.liquidui.glass.core;
 import android.os.Handler;
+import com.hellovoid.liquidui.config.GlassStyleConfig;
 import java.util.concurrent.atomic.AtomicBoolean;
 public class WindowGlassSession implements AutoCloseable {
     private final WindowKey key;
@@ -76,6 +77,7 @@ public class WindowGlassSession implements AutoCloseable {
     public WindowGlassSession(WindowKey key) { this(key, null); }
     public WindowGlassSession(WindowKey key, Handler renderHandler) { this.key = key; }
     public WindowKey key() { return key; }
+    public void updateGlassStyles(GlassStyleConfig style, long version) {}
     public boolean isClosed() { return closed.get(); }
     @Override public void close() { closed.set(true); }
 }
@@ -103,7 +105,7 @@ mapfile -t PURE_MAIN < <(
        "$ROOT/src/main/java/com/hellovoid/liquidui/reflect" \
        "$ROOT/src/main/java/com/hellovoid/liquidui/config" \
        "$ROOT/src/main/java/com/hellovoid/liquidui/diagnostics" \
-       -name '*.java' -print | sort
+       -name '*.java' ! -name 'GlassConfigRuntime.java' -print | sort
 )
 # Phase 0 deliberately moves Android/Prismal-owned Window rendering classes into glass/core.
 # Keep this fast layer mostly dependency-free: compile core state/model classes plus the process
