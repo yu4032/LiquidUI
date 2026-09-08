@@ -1,7 +1,6 @@
 package com.hellovoid.liquidui.glass.notification;
 
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 
 import com.hellovoid.liquidui.Api101Bridge;
@@ -36,8 +35,6 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
     private final NotificationGlassNodeCollector collector;
     private final LegacyNotificationVendorMaterialController materialController;
     private final NotificationGlassActivityState activityState;
-    private final NotificationPassBlurAuthorityState authorityState;
-    private final NotificationPassBlurAuthorityState.Listener authorityListener;
     private final WindowGlassSession session;
     private final WindowGlassSession.AdapterBinding binding;
     private final View sceneHost;
@@ -56,28 +53,24 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
     NotificationGlassAdapter(
             SystemUiGlassCore glassCore,
             View stack,
-            ViewGroup parent,
             NotificationGlassNodeCollector collector,
             LegacyNotificationVendorMaterialController materialController,
-            NotificationGlassActivityState activityState,
-            NotificationPassBlurAuthorityState authorityState) {
+            NotificationGlassActivityState activityState) {
         this.stackRef = new WeakReference<>(stack);
         this.collector = collector;
         this.materialController = materialController;
         this.activityState = activityState;
-        this.authorityState = authorityState;
-        this.authorityListener = this::onVendorPassBlurChanged;
 
-        // This call resolves stack -> ViewRootImpl/display inside the core. The stack is never the
-        // session identity, so multiple component adapters in one Window share one renderer.
+        // Component adapters never create the Window renderer. The exact
+        // NotificationShadeWindowView authority must already have established it.
         session = glassCore.sessionFor(stack);
-        int stackIndex = Math.max(0, parent.indexOfChild(stack));
-        sceneHost = session.attachRenderer(
-                stack, parent, stackIndex, authorityState.isEnabled());
+        sceneHost = session.sceneHost();
+        if (sceneHost == null) {
+            throw new IllegalStateException("Shade Window renderer authority unavailable");
+        }
         binding = session.bindAdapter(
                 "notification:" + Integer.toHexString(System.identityHashCode(stack)), this);
 
-        authorityState.addListener(authorityListener);
         installPreDraw(stack);
         log("created windowSession=" + System.identityHashCode(session)
                 + " stack=" + stack.getClass().getName()
@@ -169,7 +162,6 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
     void shutdown(String reason) {
         if (shutdown) return;
         shutdown = true;
-        authorityState.removeListener(authorityListener);
         removePreDraw();
         try { binding.close(); } catch (Throwable ignored) {}
         authorizedNodeIds.clear();
@@ -183,26 +175,11 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
 
     private void failClosed(String reason) {
         shutdown = true;
-        authorityState.removeListener(authorityListener);
         removePreDraw();
         authorizedNodeIds.clear();
         materialController.restoreAll();
         setShadeBlurSuppression(false);
         log("native fallback reason=" + reason);
-    }
-
-    private void onVendorPassBlurChanged(boolean enabled) {
-        if (shutdown) return;
-        session.setVendorPassBlurEnabled(enabled, "notification-authority");
-        if (!enabled) {
-            // Session synchronously revokes before the renderer tears down the producer; restoreAll
-            // is a second fail-closed guard if no node was currently represented in the scene.
-            authorizedNodeIds.clear();
-            materialController.restoreAll();
-            setShadeBlurSuppression(false);
-        } else {
-            refreshScene();
-        }
     }
 
     private void installPreDraw(View stack) {
