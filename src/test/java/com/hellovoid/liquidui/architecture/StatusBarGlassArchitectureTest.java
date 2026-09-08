@@ -13,15 +13,19 @@ public final class StatusBarGlassArchitectureTest {
     @Test
     public void ongoingActivityChipUsesExactBinderAndBoundedBackgroundHost() throws Exception {
         Path root = Path.of("src/main/java/com/hellovoid/liquidui/glass/statusbar");
+        Path coreAuthority = Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/core/VerifiedWindowRendererAuthority.java");
         assertTrue(Files.exists(root.resolve("StatusBarGlassHook.java")));
         assertTrue(Files.exists(root.resolve("StatusBarGlassAdapter.java")));
         assertTrue(Files.exists(root.resolve("StatusBarNativeMaterialController.java")));
         assertTrue(Files.exists(root.resolve("StatusBarWindowGlassAuthority.java")));
+        assertTrue(Files.exists(coreAuthority));
 
         String hook = Files.readString(root.resolve("StatusBarGlassHook.java"));
         String adapter = Files.readString(root.resolve("StatusBarGlassAdapter.java"));
         String material = Files.readString(root.resolve("StatusBarNativeMaterialController.java"));
         String authority = Files.readString(root.resolve("StatusBarWindowGlassAuthority.java"));
+        String rendererAuthority = Files.readString(coreAuthority);
 
         assertTrue(hook.contains("com.android.systemui.statusbar.chips.ui.binder.OngoingActivityChipBinder"));
         assertTrue(hook.contains("com.android.systemui.statusbar.chips.ui.model.OngoingActivityChipModel$Active"));
@@ -41,12 +45,15 @@ public final class StatusBarGlassArchitectureTest {
         assertTrue(material.contains("setAlpha(0)"));
         assertFalse(material.contains("setVisibility("));
 
+        // The statusbar domain only proves exact root/lane authority. Renderer creation remains
+        // shared/core-owned so domain packages never acquire producer APIs.
         assertTrue(authority.contains("MiuiPhoneStatusBarView"));
-        assertTrue(authority.contains("session.attachRenderer("));
-        assertTrue(authority.contains("root, root, 0, true"));
+        assertTrue(authority.contains("VerifiedWindowRendererAuthority.ensure("));
+        assertFalse(authority.contains("attachRenderer("));
         assertFalse(authority.contains("EGL14"));
         assertFalse(authority.contains("SurfaceTexture"));
         assertFalse(authority.contains("SetPassBlurSurface"));
+        assertTrue(rendererAuthority.contains("session.attachRenderer("));
     }
 
     @Test
