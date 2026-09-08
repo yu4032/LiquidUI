@@ -25,6 +25,7 @@ final class NotificationGlassRuntime {
     private final WeakHashMap<View, NotificationGlassAdapter> adapters = new WeakHashMap<>();
     private final WeakHashMap<Object, NotificationGlassAdapter> rowOwners = new WeakHashMap<>();
     private final WeakHashMap<Object, List<WeakReference<Object>>> pendingWrappers = new WeakHashMap<>();
+    private float panelExpansionFraction;
 
     NotificationGlassRuntime(
             SystemUiGlassCore glassCore,
@@ -39,6 +40,15 @@ final class NotificationGlassRuntime {
         this.materialControllerPrototype = materialController;
         this.activityState = activityState;
         this.authorityState = authorityState;
+    }
+
+    void onPanelExpansion(float fraction) {
+        float next = Math.max(0f, Math.min(1f, fraction));
+        if (Float.compare(panelExpansionFraction, next) == 0) return;
+        panelExpansionFraction = next;
+        for (NotificationGlassAdapter adapter : new ArrayList<>(adapters.values())) {
+            if (adapter != null && !adapter.isShutdown()) adapter.onPanelExpansion(next);
+        }
     }
 
     void onRowAttached(Object rowObject) {
@@ -64,6 +74,7 @@ final class NotificationGlassRuntime {
                         collector,
                         materialControllerPrototype.fork(),
                         activityState);
+                adapter.onPanelExpansion(panelExpansionFraction);
             } catch (Throwable error) {
                 log("row attach native fallback: " + error);
                 return;
