@@ -57,8 +57,6 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
             "com.android.systemui.shade.NotificationShadeWindowView";
     private static final String NOTIFICATION_PANEL =
             "com.android.systemui.shade.NotificationPanelView";
-    private static final String NOTIFICATION_PANEL_CONTROLLER =
-            "com.android.systemui.shade.NotificationPanelViewController";
     private static final String SHARED_NOTIFICATION_CONTAINER =
             "com.android.systemui.statusbar.notification.stack.ui.view.SharedNotificationContainer";
     private static final String CONTROL_CENTER_CONTAINER =
@@ -103,7 +101,8 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
         final Method setRoundRect;
         final Method panelPassBlur;
         final Method shadeWindowAttached;
-        final Method updateExpandedHeight;
+        final Method requestChildrenUpdate;
+        final Method setAnimationRunning;
         final Method blurProviderSetRatio;
         final Method blendBackgroundSetEnabled;
         final Method blurUtilsApplyBlur;
@@ -111,7 +110,6 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
         final Method setMiBackgroundBlurMode;
         final Field injectorViewField;
         final Field backgroundNormalField;
-        final Field expandedFractionField;
         final Field blurProviderView;
         final Field blendBackgroundView;
         final Class<?> shadeWindowClass;
@@ -141,8 +139,6 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
             Class<?> blendBackgroundClass = TargetClassResolver.require(classLoader, SHADE_BLEND_BACKGROUND);
             shadeWindowClass = TargetClassResolver.require(classLoader, SHADE_WINDOW);
             notificationPanelClass = TargetClassResolver.require(classLoader, NOTIFICATION_PANEL);
-            Class<?> notificationPanelControllerClass =
-                    TargetClassResolver.require(classLoader, NOTIFICATION_PANEL_CONTROLLER);
             sharedNotificationContainerClass =
                     TargetClassResolver.require(classLoader, SHARED_NOTIFICATION_CONTAINER);
             controlCenterContainerClass = TargetClassResolver.require(classLoader, CONTROL_CENTER_CONTAINER);
@@ -152,10 +148,9 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
             updateBackground = accessible(injectorClass.getDeclaredMethod("updateBackground$1"));
             rowDetached = accessible(rowClass.getDeclaredMethod("onDetachedFromWindow"));
             shadeWindowAttached = accessible(shadeWindowClass.getDeclaredMethod("onAttachedToWindow"));
-            updateExpandedHeight = accessible(
-                    notificationPanelControllerClass.getDeclaredMethod("updateExpandedHeight", float.class));
-            expandedFractionField = accessible(
-                    notificationPanelControllerClass.getDeclaredField("mExpandedFraction"));
+            requestChildrenUpdate = accessible(stackClass.getDeclaredMethod("requestChildrenUpdate"));
+            setAnimationRunning = accessible(
+                    stackClass.getDeclaredMethod("setAnimationRunning", boolean.class));
             injectorViewField = accessible(injectorClass.getField("view"));
             backgroundNormalField = accessible(rowClass.getField("mBackgroundNormal"));
 
@@ -253,20 +248,29 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
                         }
                     })::unhook);
 
-            // HyperOS writes mExpandedFraction/AmbientState before calling updateExpandedHeight().
-            // Use that exact post-update callback as the notification geometry clock instead of
-            // scanning every display pre-draw frame.
+            // Exact HyperOS notification geometry authority. NSSL coalesces scroll, height,
+            // expansion and reorder mutations through requestChildrenUpdate(), which installs its
+            // native mChildrenUpdater for the next pre-draw. Our one-shot listener is registered
+            // afterwards so it observes the geometry committed by that native updater.
             rollbacks.add(afterBackend.intercept(
-                    updateExpandedHeight,
+                    requestChildrenUpdate,
                     AfterMethodHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> {
-                        try {
-                            if (thisObject == null) return;
-                            runtime.onPanelExpansion(expandedFractionField.getFloat(thisObject));
-                        } catch (Throwable error) {
-                            android.util.Log.e("LiquidUI",
-                                    "[LUI][NotifGlass][SharedHook] panel expansion sync failed", error);
+                        if (thisObject instanceof View stack) {
+                            runtime.onChildrenUpdateRequested(stack);
                         }
+                    })::unhook);
+
+            // Property translation animations can move rows every frame without changing the
+            // panel expansion fraction. Follow frames only inside NSSL's own animation lifecycle.
+            rollbacks.add(afterBackend.intercept(
+                    setAnimationRunning,
+                    AfterMethodHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> {
+                        if (!(thisObject instanceof View stack)
+                                || args.length == 0
+                                || !(args[0] instanceof Boolean running)) return;
+                        runtime.onAnimationRunning(stack, running);
                     })::unhook);
 
             // Exact final material authority. Keep native 2dp fallback alive, then register the row
