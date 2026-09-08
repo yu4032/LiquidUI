@@ -1,5 +1,6 @@
 package com.hellovoid.liquidui.glass.media;
 
+import android.graphics.Point;
 import android.graphics.drawable.Drawable;
 import android.view.View;
 
@@ -130,10 +131,9 @@ public final class MediaNativeMaterialController implements NativeMaterialContro
             throw failure("read Mi background blend colors failed", error);
         }
         int count = Math.min(colors.size(), modes.size());
-        ArrayList<Integer> blendConfig = new ArrayList<>(count * 2);
+        ArrayList<Point> blendConfig = new ArrayList<>(count);
         for (int index = 0; index < count; index++) {
-            blendConfig.add(colors.get(index));
-            blendConfig.add(modes.get(index));
+            blendConfig.add(new Point(colors.get(index), modes.get(index)));
         }
         state.blendConfig = blendConfig;
     }
@@ -152,7 +152,7 @@ public final class MediaNativeMaterialController implements NativeMaterialContro
     private void restoreNative(State state) {
         try {
             if (state.background != null) state.background.setAlpha(state.originalAlpha);
-            ArrayList<Integer> blendConfig = state.blendConfig;
+            ArrayList<Point> blendConfig = state.blendConfig;
             if (blendConfig != null && !blendConfig.isEmpty()) {
                 setMiViewBlurMode.invoke(state.materialView, 1);
                 setMiBackgroundBlendColors.invoke(
@@ -182,7 +182,7 @@ public final class MediaNativeMaterialController implements NativeMaterialContro
     private static final class State {
         View materialView;
         Drawable background;
-        ArrayList<Integer> blendConfig;
+        ArrayList<Point> blendConfig;
         int originalAlpha;
         long generation;
         boolean suppressed;
