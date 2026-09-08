@@ -6,7 +6,7 @@ import java.lang.reflect.Method;
 
 import static org.junit.Assert.*;
 
-/** Contract for replacing dynamic HyperOS root blur with LiquidUI's cached shared backdrop. */
+/** Contract for keeping one stable native root blur while page-local backdrops stay clear. */
 public class ShadeRootBackdropPolicyContractTest {
     private static Class<?> policyClass() throws Exception {
         Class<?> value = null;
@@ -19,7 +19,7 @@ public class ShadeRootBackdropPolicyContractTest {
     }
 
     @Test
-    public void rootDynamicBlurIsNeutralizedForCachedBackdropReplacement() throws Exception {
+    public void rootMiuiBlurUsesStableFullRadiusForAnyVisibleShade() throws Exception {
         Class<?> type = policyClass();
         Method ratio = type.getDeclaredMethod("rootBlurRatio", float.class);
         Method radius = type.getDeclaredMethod("rootWindowBlurRadius", int.class);
@@ -28,9 +28,14 @@ public class ShadeRootBackdropPolicyContractTest {
         radius.setAccessible(true);
         enabled.setAccessible(true);
 
-        assertEquals(Float.valueOf(0f), ratio.invoke(null, 0.82f));
-        assertEquals(0L, ((Integer) radius.invoke(null, 96)).longValue());
-        assertEquals(Boolean.FALSE, enabled.invoke(null, true));
+        assertEquals(Float.valueOf(0f), ratio.invoke(null, 0f));
+        assertEquals(Float.valueOf(1f), ratio.invoke(null, 0.01f));
+        assertEquals(Float.valueOf(1f), ratio.invoke(null, 0.82f));
+        assertEquals(Float.valueOf(1f), ratio.invoke(null, 1f));
+
+        // AOSP window blur is a fallback path when MIUI blur is unavailable; preserve it unchanged.
+        assertEquals(96L, ((Integer) radius.invoke(null, 96)).longValue());
+        assertEquals(Boolean.TRUE, enabled.invoke(null, true));
         assertEquals(Boolean.FALSE, enabled.invoke(null, false));
     }
 
