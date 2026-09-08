@@ -42,12 +42,12 @@ final class NotificationGlassRuntime {
         this.authorityState = authorityState;
     }
 
-    /** Called after HyperOS NSSL.requestChildrenUpdate() has installed its native updater. */
-    void onChildrenUpdateRequested(View stack) {
+    /** Called after HyperOS NSSL.applyCurrentState$1() has committed row ViewState. */
+    void onNativeStateCommitted(View stack) {
         if (stack == null) return;
         NotificationGlassAdapter adapter = adapters.get(stack);
         if (adapter != null && !adapter.isShutdown()) {
-            adapter.scheduleAfterNativeChildrenUpdate();
+            adapter.onNativeStateCommitted();
         }
     }
 
