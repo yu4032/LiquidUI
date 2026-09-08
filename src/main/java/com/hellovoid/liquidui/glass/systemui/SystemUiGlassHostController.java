@@ -1,6 +1,7 @@
 package com.hellovoid.liquidui.glass.systemui;
 
 import android.view.View;
+import android.view.ViewParent;
 import android.view.ViewTreeObserver;
 
 import com.hellovoid.liquidui.glass.core.GlassNode;
@@ -250,7 +251,9 @@ public final class SystemUiGlassHostController implements AutoCloseable {
 
     private static GlassNode collectNode(View host, HostSlot slot, View sceneHost) {
         if (!slot.active || slot.broken || slot.geometry == null || slot.kind == null) return null;
-        if (!host.isAttachedToWindow() || !host.isShown() || host.getAlpha() <= 0.001f) return null;
+        if (!host.isAttachedToWindow() || !host.isShown()) return null;
+        float effectiveAlpha = effectiveWindowAlpha(host);
+        if (effectiveAlpha <= 0.001f) return null;
         int width = host.getWidth();
         int height = host.getHeight();
         if (width <= 0 || height <= 0) return null;
@@ -261,9 +264,14 @@ public final class SystemUiGlassHostController implements AutoCloseable {
         sceneHost.getLocationInWindow(sceneLocation);
         float left = hostLocation[0] - sceneLocation[0];
         float top = hostLocation[1] - sceneLocation[1];
+        float right = left + width;
+        float bottom = top + height;
+        if (right <= 0f || bottom <= 0f
+                || left >= sceneHost.getWidth() || top >= sceneHost.getHeight()) return null;
+
         float maxRadius = Math.min(width, height) * 0.5f;
         GlassHostGeometry g = slot.geometry;
-        float opacity = Math.max(0f, Math.min(1f, g.opacity() * host.getAlpha()));
+        float opacity = Math.max(0f, Math.min(1f, g.opacity() * effectiveAlpha));
         return new GlassNode(
                 slot.nodeId,
                 slot.generation,
@@ -278,6 +286,20 @@ public final class SystemUiGlassHostController implements AutoCloseable {
                 opacity,
                 g.zOrder(),
                 SystemUiMaterialClassifier.profileFor(slot.kind));
+    }
+
+    /** View.isShown() ignores ancestor alpha; page switching on HyperOS does not. */
+    private static float effectiveWindowAlpha(View host) {
+        float alpha = 1f;
+        View current = host;
+        while (current != null) {
+            if (current.getVisibility() != View.VISIBLE) return 0f;
+            alpha *= current.getAlpha();
+            if (alpha <= 0.001f) return 0f;
+            ViewParent parent = current.getParent();
+            current = parent instanceof View ? (View) parent : null;
+        }
+        return alpha;
     }
 
     private static void safeRestore(View host, HostSlot slot) {
