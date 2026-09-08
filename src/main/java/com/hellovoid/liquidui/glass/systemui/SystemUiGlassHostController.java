@@ -70,7 +70,8 @@ public final class SystemUiGlassHostController implements AutoCloseable {
             windows.put(target.session(), window);
         }
 
-        String nodeId = domain.name().toLowerCase() + ":" + (++nextNodeSequence);
+        String nodeId = domain.name().toLowerCase()
+                + ":" + adapterId + ":" + (++nextNodeSequence);
         long generation = slot.state.register(nodeId);
         slot.nodeId = nodeId;
         slot.generation = generation;
