@@ -23,9 +23,9 @@ import java.util.WeakHashMap;
  *
  * <p>Important authority split: notifPassBlur/ctrlPassBlur are native page material state. On the
  * exact target they intentionally become false for ordinary unlocked Shade states, so they are not
- * permission for LiquidUI's own Window-scoped SetPassBlurSurface consumer. Producer lifetime is
- * owned by this attached Shade Window and demand is still controlled by WindowGlassSession's
- * active adapter bindings.</p>
+ * permission for LiquidUI's own Window-scoped PassBlur consumer. Producer lifetime is owned by
+ * this attached Shade Window and demand is still controlled by WindowGlassSession's active adapter
+ * bindings.</p>
  */
 final class ShadeWindowGlassAuthority implements AutoCloseable {
     private static final String TAG = "[ShadeWindowGlass]";
