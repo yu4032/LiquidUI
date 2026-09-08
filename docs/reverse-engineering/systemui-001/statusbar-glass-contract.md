@@ -51,13 +51,16 @@ The status bar is a different Window/ViewRoot from `NotificationShadeWindowView`
 
 The exact Window root is `com.android.systemui.statusbar.phone.MiuiPhoneStatusBarView`. It inherits `PhoneStatusBarView.onAttachedToWindow()` / `onDetachedFromWindow()` and is the root inflated by `status_bar.xml`.
 
-A dedicated `StatusBarWindowGlassAuthority` may establish exactly one Window renderer through the existing process-global `SystemUiGlassCore` / `WindowGlassSession`. It must:
+`StatusBarWindowGlassAuthority` is target-specific discovery/validation only. It may establish the status-bar Window host only by delegating to the shared core-owned `VerifiedWindowRendererAuthority`; the statusbar domain itself never creates or implements a renderer/producer pipeline.
 
-- attach only for an exact `MiuiPhoneStatusBarView` root;
-- insert the shared renderer at root index 0, below all native status-bar foreground content;
-- use the existing core-owned PassBlur/OES/Prismal pipeline only;
-- never implement EGL/OES/SurfaceTexture/native PassBlur APIs itself;
-- close/revoke with the Window root lifecycle.
+The verified authority path must:
+
+- accept only an exact attached `MiuiPhoneStatusBarView` root;
+- use root index 0 as the safe renderer lane, below all native status-bar foreground content;
+- delegate renderer establishment to the process-global `SystemUiGlassCore` / `WindowGlassSession` through the shared core helper;
+- reuse an existing Window scene host if already present;
+- never implement EGL/OES/SurfaceTexture/native PassBlur APIs in the statusbar domain;
+- retire the target-specific authority object with the Window root lifecycle.
 
 Component adapters never create a second renderer.
 
