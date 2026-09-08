@@ -10,7 +10,7 @@ import static org.junit.Assert.assertTrue;
 
 public final class GenericWindowPassBlurAuthorityArchitectureTest {
     @Test
-    public void genericWindowsMustNotOpenVendorPassBlurWithoutVerifiedAuthority() throws Exception {
+    public void onlyVerifiedShadeWindowOwnsTheLiquidUiProducer() throws Exception {
         String genericHost = Files.readString(Path.of(
                 "src/main/java/com/hellovoid/liquidui/glass/systemui/SystemUiGlassWindowHost.java"));
         String notification = Files.readString(Path.of(
@@ -20,14 +20,14 @@ public final class GenericWindowPassBlurAuthorityArchitectureTest {
         String hook = Files.readString(Path.of(
                 "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationSharedGlassHook.java"));
 
-        // The exact Shade Window authority owns producer enablement. Page/component adapters do not.
+        // The exact Shade Window owns LiquidUI's SetPassBlurSurface consumer. Native per-page
+        // notifPassBlur/ctrlPassBlur are material state only and must not gate that producer.
         assertTrue(authority.contains("session.attachRenderer("));
-        assertTrue(authority.contains("authorityState.isEnabled()"));
-        assertTrue(authority.contains("session.setVendorPassBlurEnabled("));
+        assertFalse(authority.contains("session.setVendorPassBlurEnabled("));
         assertFalse(notification.contains("session.setVendorPassBlurEnabled("));
         assertFalse(notification.contains("attachRenderer("));
 
-        // Both independent HyperOS authorities are observed before aggregation.
+        // Both independent HyperOS page states remain observed for diagnostics/material policy.
         assertTrue(hook.contains("observeNotification("));
         assertTrue(hook.contains("observeControlCenter("));
 
