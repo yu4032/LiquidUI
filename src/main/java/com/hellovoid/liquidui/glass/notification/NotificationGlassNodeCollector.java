@@ -123,7 +123,11 @@ final class NotificationGlassNodeCollector {
             int nodeHeight = clipped.height();
             if (nodeWidth <= 0 || nodeHeight <= 0) return null;
 
-            float alpha = effectiveAncestorAlpha(background);
+            // Presentation authorization hides only the native background material target by
+            // setting its alpha to zero. That is LiquidUI-owned state, not native Shade
+            // visibility. Start at the row so native row/NSSL/page/root alpha is still inherited
+            // without letting our own material handoff revoke the glass node on the next tick.
+            float alpha = effectiveAncestorAlpha(row);
             if (alpha <= 0.001f) return null;
 
             // Match NotificationUtil#setRoundRect's stable native card silhouette instead of
