@@ -15,6 +15,7 @@ import com.hellovoid.liquidui.glass.core.WindowGlassSession;
 import com.hellovoid.liquidui.glass.media.MediaGlassHook;
 import com.hellovoid.liquidui.glass.media.MediaOutputDialogGlassHook;
 import com.hellovoid.liquidui.glass.notification.NotificationSharedGlassHook;
+import com.hellovoid.liquidui.glass.plugin.MiuiControlCenterMediaPluginGlassSession;
 import com.hellovoid.liquidui.glass.plugin.MiuiControlCenterPluginGlassSession;
 import com.hellovoid.liquidui.glass.plugin.MiuiSecondaryPanelPluginGlassSession;
 import com.hellovoid.liquidui.glass.plugin.MiuiSystemUiPluginGlassHook;
@@ -134,18 +135,30 @@ public final class ModuleMain extends XposedModule {
                                                     processGlassCore,
                                                     pluginAfter);
                                     try {
-                                        MiuiVolumePluginGlassSession volume =
-                                                MiuiVolumePluginGlassSession.install(
+                                        MiuiControlCenterMediaPluginGlassSession media =
+                                                MiuiControlCenterMediaPluginGlassSession.install(
                                                         pluginClassLoader,
                                                         pluginContext,
                                                         processGlassCore,
-                                                        pluginBefore,
                                                         pluginAfter);
-                                        return () -> {
-                                            volume.close();
-                                            secondaryPanels.close();
-                                            controlCenter.close();
-                                        };
+                                        try {
+                                            MiuiVolumePluginGlassSession volume =
+                                                    MiuiVolumePluginGlassSession.install(
+                                                            pluginClassLoader,
+                                                            pluginContext,
+                                                            processGlassCore,
+                                                            pluginBefore,
+                                                            pluginAfter);
+                                            return () -> {
+                                                volume.close();
+                                                media.close();
+                                                secondaryPanels.close();
+                                                controlCenter.close();
+                                            };
+                                        } catch (Throwable error) {
+                                            media.close();
+                                            throw error;
+                                        }
                                     } catch (Throwable error) {
                                         secondaryPanels.close();
                                         throw error;
