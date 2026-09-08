@@ -1,0 +1,148 @@
+package com.hellovoid.liquidui.glass.notification;
+
+import android.view.View;
+import android.view.ViewGroup;
+
+import com.hellovoid.liquidui.Api101Bridge;
+import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
+import com.hellovoid.liquidui.glass.core.SystemUiGlassCore;
+import com.hellovoid.liquidui.glass.core.WindowGlassSession;
+
+import java.lang.ref.WeakReference;
+import java.util.WeakHashMap;
+
+/**
+ * Exact systemui-001 owner of the shared NotificationShade Window renderer.
+ *
+ * <p>HyperOS places SharedNotificationContainer and ControlCenterContainer as independent page
+ * branches under NotificationShadeWindowView. The renderer therefore cannot live under either
+ * page. It is inserted directly after the root ShadeBackgroundView, below both pages' native
+ * foreground content. The page-level blur/blend backgrounds are neutralized by
+ * NotificationSharedGlassHook while their foreground Views remain untouched.</p>
+ */
+final class ShadeWindowGlassAuthority implements AutoCloseable {
+    private static final String TAG = "[ShadeWindowGlass]";
+    private static final String SHADE_WINDOW =
+            "com.android.systemui.shade.NotificationShadeWindowView";
+    private static final String SHADE_BACKGROUND =
+            "com.miui.systemui.shade.ShadeBackgroundView";
+    private static final String SHARED_NOTIFICATION_CONTAINER =
+            "com.android.systemui.statusbar.notification.stack.ui.view.SharedNotificationContainer";
+    private static final String CONTROL_CENTER_CONTAINER =
+            "com.miui.systemui.controlcenter.container.ControlCenterContainer";
+
+    private static final WeakHashMap<View, ShadeWindowGlassAuthority> ACTIVE = new WeakHashMap<>();
+
+    static ShadeWindowGlassAuthority ensure(
+            SystemUiGlassCore glassCore,
+            View shadeWindow,
+            NotificationPassBlurAuthorityState authorityState) {
+        if (glassCore == null || shadeWindow == null || authorityState == null) return null;
+        if (!SHADE_WINDOW.equals(shadeWindow.getClass().getName())) return null;
+        if (!(shadeWindow instanceof ViewGroup root) || !shadeWindow.isAttachedToWindow()) return null;
+        synchronized (ACTIVE) {
+            ShadeWindowGlassAuthority current = ACTIVE.get(shadeWindow);
+            if (current != null && !current.closed && !current.session.isClosed()) return current;
+            ShadeWindowGlassAuthority created = new ShadeWindowGlassAuthority(
+                    glassCore, root, authorityState);
+            ACTIVE.put(shadeWindow, created);
+            return created;
+        }
+    }
+
+    private final WeakReference<View> shadeWindowRef;
+    private final NotificationPassBlurAuthorityState authorityState;
+    private final NotificationPassBlurAuthorityState.Listener authorityListener;
+    private final WindowGlassSession session;
+    private final View.OnAttachStateChangeListener attachListener;
+    private boolean closed;
+
+    private ShadeWindowGlassAuthority(
+            SystemUiGlassCore glassCore,
+            ViewGroup root,
+            NotificationPassBlurAuthorityState authorityState) {
+        verifyExactShadeHierarchy(root);
+        this.shadeWindowRef = new WeakReference<>(root);
+        this.authorityState = authorityState;
+        this.session = glassCore.sessionFor(root);
+
+        int insertionIndex = rendererInsertionIndex(root);
+        View sceneHost = session.attachRenderer(
+                root, root, insertionIndex, authorityState.isEnabled());
+        if (sceneHost == null) {
+            throw new IllegalStateException("NotificationShade Window renderer unavailable");
+        }
+
+        this.authorityListener = enabled -> {
+            if (closed || session.isClosed()) return;
+            session.setVendorPassBlurEnabled(enabled, "shade-window-aggregate-authority");
+            log("aggregate authority=" + enabled
+                    + " notif=" + authorityState.isNotificationEnabled()
+                    + " controlCenter=" + authorityState.isControlCenterEnabled());
+        };
+        authorityState.addListener(authorityListener);
+        this.attachListener = new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View v) {}
+            @Override public void onViewDetachedFromWindow(View v) { close(); }
+        };
+        root.addOnAttachStateChangeListener(attachListener);
+        log("renderer attached root=" + root.getClass().getName()
+                + " index=" + insertionIndex
+                + " gate=" + authorityState.isEnabled());
+    }
+
+    @Override
+    public void close() {
+        if (closed) return;
+        closed = true;
+        authorityState.removeListener(authorityListener);
+        View shadeWindow = shadeWindowRef.get();
+        if (shadeWindow != null) {
+            try { shadeWindow.removeOnAttachStateChangeListener(attachListener); } catch (Throwable ignored) {}
+            synchronized (ACTIVE) { ACTIVE.remove(shadeWindow, this); }
+        }
+    }
+
+    private static void verifyExactShadeHierarchy(ViewGroup root) {
+        boolean hasNotifications = false;
+        boolean hasControlCenter = false;
+        for (int i = 0; i < root.getChildCount(); i++) {
+            View child = root.getChildAt(i);
+            String name = child.getClass().getName();
+            if (SHARED_NOTIFICATION_CONTAINER.equals(name)) hasNotifications = true;
+            if (CONTROL_CENTER_CONTAINER.equals(name)) hasControlCenter = true;
+        }
+        if (!hasNotifications || !hasControlCenter) {
+            throw new IllegalStateException(
+                    "systemui-001 Shade hierarchy mismatch notifications=" + hasNotifications
+                            + " controlCenter=" + hasControlCenter);
+        }
+    }
+
+    private static int rendererInsertionIndex(ViewGroup root) {
+        int backgroundIndex = -1;
+        int firstPageIndex = root.getChildCount();
+        for (int i = 0; i < root.getChildCount(); i++) {
+            View child = root.getChildAt(i);
+            String name = child.getClass().getName();
+            if (SHADE_BACKGROUND.equals(name) && backgroundIndex < 0) backgroundIndex = i;
+            if (SHARED_NOTIFICATION_CONTAINER.equals(name) || CONTROL_CENTER_CONTAINER.equals(name)) {
+                firstPageIndex = Math.min(firstPageIndex, i);
+            }
+        }
+        if (backgroundIndex < 0 || backgroundIndex >= firstPageIndex) {
+            throw new IllegalStateException(
+                    "systemui-001 renderer lane unavailable background=" + backgroundIndex
+                            + " firstPage=" + firstPageIndex);
+        }
+        return backgroundIndex + 1;
+    }
+
+    private static void log(String message) {
+        try {
+            Api101Bridge.log(LiquidUiLog.format(TAG + " " + message));
+        } catch (Throwable ignored) {
+            android.util.Log.i("LiquidUI", "[LUI]" + TAG + " " + message);
+        }
+    }
+}
