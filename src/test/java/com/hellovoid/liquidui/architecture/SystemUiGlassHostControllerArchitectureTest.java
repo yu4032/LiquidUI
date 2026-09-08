@@ -27,7 +27,7 @@ public final class SystemUiGlassHostControllerArchitectureTest {
         assertTrue(controller.contains("new GlassNode("));
         assertTrue(host.contains("sessionFor("));
         assertTrue(host.contains("sceneHost()"));
-        assertTrue(host.contains("attachRenderer("));
+        assertFalse(host.contains("attachRenderer("));
         assertTrue(controller.contains("getLocationInWindow"));
 
         assertFalse(joined.contains("new WindowGlassRenderer"));
