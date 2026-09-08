@@ -66,7 +66,12 @@ public final class FrameCoordinator {
 
         synchronized (this) {
             queued = false;
-            if (!cancelled && (sourcePending || scenePending)) {
+            // Scene state is latest-state data and renderPendingFrame reads it again during the
+            // active draw. A scene request arriving while GL is busy therefore must not create an
+            // immediate self-loop; the next real UI scene request will drain the latest state.
+            // A fresh OES source frame is different: updateTexImage() must eventually consume it,
+            // so preserve exactly one follow-up when source work arrived during the draw.
+            if (!cancelled && sourcePending) {
                 queued = true;
                 poster.post(this::drainOnce);
             }
