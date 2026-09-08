@@ -5,36 +5,31 @@ import org.junit.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-/** Regression contract: Shade background blur is cached in LiquidUI, not animated by vendor blur. */
+/** Regression contract: Shade drag must not continuously reconfigure the native root blur radius. */
 public final class ShadeCachedBackdropArchitectureTest {
     private static String read(String path) throws Exception {
         return Files.readString(Path.of(path));
     }
 
     @Test
-    public void shadeAuthorityEnablesCachedBackdropFillOnSharedRenderer() throws Exception {
+    public void rootBlurPolicyLatchesAnyVisibleShadeToOneRadius() throws Exception {
+        String policy = read(
+                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationShadeBlurPolicy.java");
+
+        assertTrue(policy.contains("requested > 0f ? 1f : 0f"));
+    }
+
+    @Test
+    public void noFullScreenLiquidUiBackdropIsIntroducedForThisOptimization() throws Exception {
         String authority = read(
                 "src/main/java/com/hellovoid/liquidui/glass/notification/ShadeWindowGlassAuthority.java");
         String session = read(
                 "src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassSession.java");
-        String renderer = read(
-                "src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java");
 
-        assertTrue(authority.contains("session.setBackdropFillEnabled(true"));
-        assertTrue(session.contains("setBackdropFillEnabled(boolean enabled"));
-        assertTrue(renderer.contains("renderBackdropFillPass("));
-        assertTrue(renderer.contains("prismalRenderer.blurTextureV"));
-    }
-
-    @Test
-    public void shadeHookForcesRootNativeBlurModesOff() throws Exception {
-        String hook = read(
-                "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationSharedGlassHook.java");
-
-        assertTrue(hook.contains("shadeWindowClass.isInstance(thisObject)"));
-        assertTrue(hook.contains("args[0] = Boolean.FALSE"));
-        assertTrue(hook.contains("args[0] = Integer.valueOf(0)"));
+        assertFalse(authority.contains("setBackdropFillEnabled"));
+        assertFalse(session.contains("setBackdropFillEnabled"));
     }
 }
