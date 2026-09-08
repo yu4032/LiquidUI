@@ -1,7 +1,6 @@
 package com.hellovoid.liquidui.glass.notification;
 
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.ViewParent;
 
 import com.hellovoid.liquidui.Api101Bridge;
@@ -45,20 +44,30 @@ final class NotificationGlassRuntime {
     void onRowAttached(Object rowObject) {
         if (!(rowObject instanceof View row) || !row.isAttachedToWindow()) return;
         View stack = findStack(row);
-        if (stack == null || !(stack.getParent() instanceof ViewGroup parent)) {
-            log("row attach ignored: NSSL parent unavailable");
+        if (stack == null) {
+            log("row attach ignored: NSSL unavailable");
+            return;
+        }
+        View root = stack.getRootView();
+        ShadeWindowGlassAuthority authority =
+                ShadeWindowGlassAuthority.ensure(glassCore, root, authorityState);
+        if (authority == null) {
+            log("row attach ignored: Shade Window renderer authority unavailable");
             return;
         }
         NotificationGlassAdapter adapter = adapters.get(stack);
         if (adapter == null || adapter.isShutdown()) {
-            adapter = new NotificationGlassAdapter(
-                    glassCore,
-                    stack,
-                    parent,
-                    collector,
-                    materialControllerPrototype.fork(),
-                    activityState,
-                    authorityState);
+            try {
+                adapter = new NotificationGlassAdapter(
+                        glassCore,
+                        stack,
+                        collector,
+                        materialControllerPrototype.fork(),
+                        activityState);
+            } catch (Throwable error) {
+                log("row attach native fallback: " + error);
+                return;
+            }
             adapters.put(stack, adapter);
         }
         rowOwners.put(rowObject, adapter);
