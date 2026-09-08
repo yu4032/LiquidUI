@@ -29,8 +29,8 @@ public final class SystemUiGlassWindowHost {
         // Generic SystemUI adapters do not own a reverse-engineered vendor PassBlur authority.
         // They may establish the shared renderer/scene host, but a new Window must remain native
         // until an exact authority owner (currently Notification Shade) explicitly enables the
-        // producer on this same WindowGlassSession. This prevents SetPassBlurSurface from being
-        // sent to unverified plugin/volume/secondary ViewRoots during their first appearance.
+        // producer on this same WindowGlassSession. This prevents the vendor PassBlur endpoint
+        // from being opened on unverified plugin/volume/secondary ViewRoots at first appearance.
         View sceneHost = session.attachRenderer(anchor, rootGroup, 0, false);
         return new SessionHost(session, sceneHost);
     }
