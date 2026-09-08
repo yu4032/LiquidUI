@@ -90,8 +90,9 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
     void onPanelExpansion(float fraction) {
         if (isShutdown()) return;
         float next = Math.max(0f, Math.min(1f, fraction));
-        if (Float.compare(panelExpansionFraction, next) == 0) return;
         panelExpansionFraction = next;
+        // updateExpandedHeight itself is the native transition tick. The fraction is diagnostic
+        // state only: stale/unchanged values must not suppress a geometry refresh.
         refreshScene();
     }
 
@@ -193,7 +194,6 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
         List<GlassNode> nodes = new ArrayList<>();
         List<Object> stale = new ArrayList<>();
         boolean hasActiveRows = false;
-        boolean panelVisible = panelExpansionFraction > 0f;
         for (var entry : new WeakHashMap<>(rows).entrySet()) {
             Object rowObject = entry.getKey();
             RowState state = entry.getValue();
@@ -205,7 +205,6 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
                 continue;
             }
             hasActiveRows = true;
-            if (!panelVisible) continue;
             GlassNode node = collector.collect(
                     rowObject,
                     sceneHost,
