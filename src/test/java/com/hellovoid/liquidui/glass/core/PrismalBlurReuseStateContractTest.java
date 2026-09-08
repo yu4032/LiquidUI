@@ -9,7 +9,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-/** Regression contract: unchanged source + blur profile must not rebuild Gaussian blur on scene-only frames. */
+/** Regression contract: scene-only geometry updates reuse the already prepared blur texture. */
 public class PrismalBlurReuseStateContractTest {
     private static Object newState() throws Exception {
         Class<?> type = null;
@@ -22,38 +22,51 @@ public class PrismalBlurReuseStateContractTest {
         return constructor.newInstance();
     }
 
-    private static boolean needsRebuild(Object state, long sourceFrame, float blurRadius)
-            throws Exception {
-        Method method = state.getClass().getDeclaredMethod("needsRebuild", long.class, float.class);
+    private static void onBackdropPrepared(Object state, float blurRadius) throws Exception {
+        Method method = state.getClass().getDeclaredMethod("onBackdropPrepared", float.class);
         method.setAccessible(true);
-        return (Boolean) method.invoke(state, sourceFrame, blurRadius);
+        method.invoke(state, blurRadius);
     }
 
-    private static void markPrepared(Object state, long sourceFrame, float blurRadius)
-            throws Exception {
-        Method method = state.getClass().getDeclaredMethod("markPrepared", long.class, float.class);
+    private static boolean needsRebuild(Object state, float blurRadius) throws Exception {
+        Method method = state.getClass().getDeclaredMethod("needsRebuild", float.class);
         method.setAccessible(true);
-        method.invoke(state, sourceFrame, blurRadius);
+        return (Boolean) method.invoke(state, blurRadius);
+    }
+
+    private static void markPrepared(Object state, float blurRadius) throws Exception {
+        Method method = state.getClass().getDeclaredMethod("markPrepared", float.class);
+        method.setAccessible(true);
+        method.invoke(state, blurRadius);
     }
 
     @Test
-    public void geometryOnlyFramesReuseExistingBlurTexture() throws Exception {
+    public void freshlyPreparedBaseBlurIsImmediatelyReusable() throws Exception {
         Object state = newState();
+        onBackdropPrepared(state, 24f);
 
-        assertTrue(needsRebuild(state, 7L, 24f));
-        markPrepared(state, 7L, 24f);
-
-        // Scene geometry may change every UI frame, but source/profile did not.
-        assertFalse(needsRebuild(state, 7L, 24f));
-        assertFalse(needsRebuild(state, 7L, 24f));
+        assertFalse(needsRebuild(state, 24f));
+        assertFalse(needsRebuild(state, 24f));
     }
 
     @Test
-    public void sourceOrBlurProfileChangeInvalidatesReuse() throws Exception {
+    public void geometryOnlyFramesReuseLastPreparedRadius() throws Exception {
         Object state = newState();
-        markPrepared(state, 7L, 24f);
+        onBackdropPrepared(state, 24f);
+        markPrepared(state, 18f);
 
-        assertTrue(needsRebuild(state, 8L, 24f));
-        assertTrue(needsRebuild(state, 7L, 18f));
+        assertFalse(needsRebuild(state, 18f));
+        assertTrue(needsRebuild(state, 24f));
+    }
+
+    @Test
+    public void newBackdropPreparationResetsActiveRadiusToBase() throws Exception {
+        Object state = newState();
+        onBackdropPrepared(state, 24f);
+        markPrepared(state, 18f);
+        onBackdropPrepared(state, 24f);
+
+        assertFalse(needsRebuild(state, 24f));
+        assertTrue(needsRebuild(state, 18f));
     }
 }
