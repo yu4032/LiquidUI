@@ -1,7 +1,6 @@
 package com.hellovoid.liquidui.glass.notification;
 
 import android.view.View;
-import android.view.ViewTreeObserver;
 
 import com.hellovoid.liquidui.Api101Bridge;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
@@ -42,11 +41,10 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
     private final WeakHashMap<Object, Boolean> wrappers = new WeakHashMap<>();
     private final Set<String> authorizedNodeIds = new HashSet<>();
 
-    private ViewTreeObserver observer;
-    private ViewTreeObserver.OnPreDrawListener preDrawListener;
     private List<GlassNode> lastNodes = List.of();
     private long identitySequence;
     private long lifecycleGeneration;
+    private float panelExpansionFraction;
     private boolean shadeBlurSuppressionActive;
     private boolean shutdown;
 
@@ -71,7 +69,6 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
         binding = session.bindAdapter(
                 "notification:" + Integer.toHexString(System.identityHashCode(stack)), this);
 
-        installPreDraw(stack);
         log("created windowSession=" + System.identityHashCode(session)
                 + " stack=" + stack.getClass().getName()
                 + " host=" + sceneHost.getClass().getName());
@@ -88,6 +85,14 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
     boolean ownsRow(Object row) {
         RowState state = rows.get(row);
         return !isShutdown() && state != null && state.active;
+    }
+
+    void onPanelExpansion(float fraction) {
+        if (isShutdown()) return;
+        float next = Math.max(0f, Math.min(1f, fraction));
+        if (Float.compare(panelExpansionFraction, next) == 0) return;
+        panelExpansionFraction = next;
+        refreshScene();
     }
 
     void registerRow(Object row) {
@@ -162,7 +167,6 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
     void shutdown(String reason) {
         if (shutdown) return;
         shutdown = true;
-        removePreDraw();
         try { binding.close(); } catch (Throwable ignored) {}
         authorizedNodeIds.clear();
         materialController.restoreAll();
@@ -175,33 +179,10 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
 
     private void failClosed(String reason) {
         shutdown = true;
-        removePreDraw();
         authorizedNodeIds.clear();
         materialController.restoreAll();
         setShadeBlurSuppression(false);
         log("native fallback reason=" + reason);
-    }
-
-    private void installPreDraw(View stack) {
-        ViewTreeObserver value = stack.getViewTreeObserver();
-        if (value == null || !value.isAlive()) return;
-        preDrawListener = () -> {
-            refreshScene();
-            return true;
-        };
-        value.addOnPreDrawListener(preDrawListener);
-        observer = value;
-    }
-
-    private void removePreDraw() {
-        ViewTreeObserver value = observer;
-        ViewTreeObserver.OnPreDrawListener listener = preDrawListener;
-        observer = null;
-        preDrawListener = null;
-        if (value == null || listener == null) return;
-        try {
-            if (value.isAlive()) value.removeOnPreDrawListener(listener);
-        } catch (Throwable ignored) {}
     }
 
     private void refreshScene() {
@@ -212,6 +193,7 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
         List<GlassNode> nodes = new ArrayList<>();
         List<Object> stale = new ArrayList<>();
         boolean hasActiveRows = false;
+        boolean panelVisible = panelExpansionFraction > 0f;
         for (var entry : new WeakHashMap<>(rows).entrySet()) {
             Object rowObject = entry.getKey();
             RowState state = entry.getValue();
@@ -223,6 +205,7 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
                 continue;
             }
             hasActiveRows = true;
+            if (!panelVisible) continue;
             GlassNode node = collector.collect(
                     rowObject,
                     sceneHost,
@@ -247,6 +230,8 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
             lastNodes = nextNodes;
             binding.publish(lastNodes);
         }
+        // Keep the Window producer warm while rows exist. Opening/closing the panel must not force
+        // a PassBlur producer teardown/rebind on the same critical transition frame.
         binding.setActive(hasActiveRows, hasActiveRows ? "rows-present" : "no-rows");
         if (authorizedNodeIds.isEmpty()) setShadeBlurSuppression(false);
     }
