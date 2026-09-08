@@ -24,6 +24,7 @@ public class NotificationRecoveryBaselineArchitectureTest {
         String adapter = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassAdapter.java");
         String hook = read("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationSharedGlassHook.java");
 
+        // This is intentionally the last device-validated notification timing contract.
         assertTrue(adapter.contains("installPreDraw(stack)"));
         assertTrue(adapter.contains("refreshScene()"));
         assertFalse(hook.contains("applyCurrentState$1"));
