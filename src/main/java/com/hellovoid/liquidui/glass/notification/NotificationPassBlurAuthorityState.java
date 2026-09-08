@@ -5,33 +5,70 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-/** Process-local mirror of HyperOS notificationPanelView notifPassBlur authority. */
+/**
+ * Process-local mirror of the two independent HyperOS Shade PassBlur authorities.
+ *
+ * <p>The exact target exposes notificationPanelView/notifPassBlur and
+ * ControlCenterContainer/ctrlPassBlur independently. The shared Window producer stays enabled
+ * while either page still owns vendor PassBlur authority, so a page handoff does not retire the
+ * producer between adjacent Shade pages.</p>
+ */
 final class NotificationPassBlurAuthorityState {
     interface Listener {
         void onPassBlurChanged(boolean enabled);
     }
 
     private final List<WeakReference<Listener>> listeners = new ArrayList<>();
-    private boolean known;
-    private boolean enabled;
+    private boolean notificationKnown;
+    private boolean notificationEnabled;
+    private boolean controlCenterKnown;
+    private boolean controlCenterEnabled;
 
     synchronized boolean isKnown() {
-        return known;
+        return notificationKnown || controlCenterKnown;
     }
 
     synchronized boolean isEnabled() {
-        return known && enabled;
+        return effectiveEnabledLocked();
     }
 
-    void observe(boolean nextEnabled) {
+    synchronized boolean isNotificationEnabled() {
+        return notificationKnown && notificationEnabled;
+    }
+
+    synchronized boolean isControlCenterEnabled() {
+        return controlCenterKnown && controlCenterEnabled;
+    }
+
+    void observeNotification(boolean enabled) {
+        observe(true, enabled);
+    }
+
+    void observeControlCenter(boolean enabled) {
+        observe(false, enabled);
+    }
+
+    private void observe(boolean notification, boolean enabled) {
         List<Listener> notify = new ArrayList<>();
+        boolean nextEffective;
         synchronized (this) {
-            if (known && enabled == nextEnabled) return;
-            known = true;
-            enabled = nextEnabled;
-            collectLiveListenersLocked(notify);
+            boolean wasKnown = notificationKnown || controlCenterKnown;
+            boolean previousEffective = effectiveEnabledLocked();
+            if (notification) {
+                if (notificationKnown && notificationEnabled == enabled) return;
+                notificationKnown = true;
+                notificationEnabled = enabled;
+            } else {
+                if (controlCenterKnown && controlCenterEnabled == enabled) return;
+                controlCenterKnown = true;
+                controlCenterEnabled = enabled;
+            }
+            nextEffective = effectiveEnabledLocked();
+            if (!wasKnown || previousEffective != nextEffective) {
+                collectLiveListenersLocked(notify);
+            }
         }
-        for (Listener listener : notify) listener.onPassBlurChanged(nextEnabled);
+        for (Listener listener : notify) listener.onPassBlurChanged(nextEffective);
     }
 
     void addListener(Listener listener) {
@@ -40,7 +77,7 @@ final class NotificationPassBlurAuthorityState {
         synchronized (this) {
             pruneLocked();
             listeners.add(new WeakReference<>(listener));
-            if (known) current = enabled;
+            if (notificationKnown || controlCenterKnown) current = effectiveEnabledLocked();
         }
         if (current != null) listener.onPassBlurChanged(current);
     }
@@ -52,6 +89,11 @@ final class NotificationPassBlurAuthorityState {
             Listener value = iterator.next().get();
             if (value == null || value == listener) iterator.remove();
         }
+    }
+
+    private boolean effectiveEnabledLocked() {
+        return (notificationKnown && notificationEnabled)
+                || (controlCenterKnown && controlCenterEnabled);
     }
 
     private void collectLiveListenersLocked(List<Listener> output) {
