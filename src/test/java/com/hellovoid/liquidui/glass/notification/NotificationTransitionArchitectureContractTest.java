@@ -28,6 +28,22 @@ public class NotificationTransitionArchitectureContractTest {
     }
 
     @Test
+    public void expansionFractionIsARefreshClockNotANodeLivenessGate() throws Exception {
+        String adapter = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassAdapter.java");
+
+        // The field is observational timing only. On this HyperOS build a missing/stale fraction
+        // must not leave every notification node permanently unpublished after pre-draw polling was
+        // removed. Effective visibility is owned by the native View hierarchy in the collector.
+        assertFalse(adapter.contains("boolean panelVisible = panelExpansionFraction > 0f"));
+        assertFalse(adapter.contains("if (!panelVisible) continue"));
+
+        // updateExpandedHeight is the refresh tick. Even an unchanged/stale fraction must refresh
+        // native geometry because the callback itself is the event authority.
+        assertFalse(adapter.contains("if (Float.compare(panelExpansionFraction, next) == 0) return"));
+        assertTrue(adapter.contains("panelExpansionFraction = next;\n        refreshScene();"));
+    }
+
+    @Test
     public void rootLevelGlassRespectsNativeAncestorVisibility() throws Exception {
         String collector = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java");
 
