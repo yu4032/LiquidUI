@@ -20,6 +20,7 @@ import com.hellovoid.liquidui.glass.plugin.MiuiControlCenterPluginGlassSession;
 import com.hellovoid.liquidui.glass.plugin.MiuiSecondaryPanelPluginGlassSession;
 import com.hellovoid.liquidui.glass.plugin.MiuiSystemUiPluginGlassHook;
 import com.hellovoid.liquidui.glass.plugin.MiuiVolumePluginGlassSession;
+import com.hellovoid.liquidui.glass.statusbar.OngoingActivityChipGlassHook;
 import com.hellovoid.liquidui.hook.HookRegistryReport;
 import com.hellovoid.liquidui.hook.SystemUiHookRegistry;
 import com.hellovoid.liquidui.target.FrameworkPackageVersionReader;
@@ -111,6 +112,9 @@ public final class ModuleMain extends XposedModule {
                             new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
                             processGlassCore),
                     new MediaOutputDialogGlassHook(
+                            new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
+                            processGlassCore),
+                    new OngoingActivityChipGlassHook(
                             new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
                             processGlassCore),
                     new MiuiSystemUiPluginGlassHook(
