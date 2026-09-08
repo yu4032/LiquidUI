@@ -13,14 +13,16 @@ public final class PrismalPerProfileBlurArchitectureTest {
     }
 
     @Test
-    public void compositorRebuildsOnlyWhenPerNodeBlurRadiusChanges() throws Exception {
+    public void compositorRebuildsOnlyWhenPerNodeBlurRadiusOrModeChanges() throws Exception {
         String compositor = read(
                 "src/main/java/com/hellovoid/liquidui/glass/core/GlassCompositor.java");
 
-        assertTrue(compositor.contains("Float activeBlurRadius"));
-        assertTrue(compositor.contains("Float.compare(activeBlurRadius, state.params().blurRadiusPx)"));
+        assertTrue(compositor.contains("PrismalBlurReuseState blurReuseState"));
+        assertTrue(compositor.contains("blurReuseState.onBackdropPrepared"));
+        assertTrue(compositor.contains("blurReuseState.needsRebuild(blurRadius)"));
+        assertTrue(compositor.contains("PrismalPerformanceTuner.modeMatches(renderer, params)"));
         assertTrue(compositor.contains(
-                "PrismalPerformanceTuner.prepareNodeBackdrop(renderer, state.params())"));
+                "PrismalPerformanceTuner.prepareNodeBackdrop(renderer, params)"));
         assertFalse(compositor.contains("ensureFastBackdrop"));
     }
 
@@ -35,6 +37,7 @@ public final class PrismalPerProfileBlurArchitectureTest {
         assertTrue(tuner.contains("renderer.renderBlur(params)"));
         assertTrue(tuner.contains("Mode.FAST_COPY"));
         assertTrue(tuner.contains("Mode.GAUSSIAN"));
+        assertTrue(tuner.contains("modeMatches"));
         assertFalse(tuner.contains("TUNED.containsKey"));
     }
 
