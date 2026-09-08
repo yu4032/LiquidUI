@@ -29,7 +29,7 @@ public class FrameCoordinatorContractTest {
     }
 
     @Test
-    public void requestsDuringDrawQueueOnlyOneFollowUp() {
+    public void sceneRequestsDuringDrawDoNotSelfLoop() {
         QueuePoster poster = new QueuePoster();
         AtomicReference<FrameCoordinator> reference = new AtomicReference<>();
         AtomicInteger calls = new AtomicInteger();
@@ -42,6 +42,34 @@ public class FrameCoordinatorContractTest {
         reference.set(coordinator);
 
         coordinator.requestSourceFrame();
+        poster.runNext();
+
+        // Scene state is read latest by the active draw. Do not immediately chase scene requests
+        // that arrived while GL was busy; the next real UI scene request drains the latest state.
+        assertEquals(0L, poster.size());
+        assertEquals(1L, calls.get());
+
+        coordinator.requestScene();
+        assertEquals(1L, poster.size());
+        poster.runNext();
+        assertEquals(2L, calls.get());
+        assertEquals(0L, poster.size());
+    }
+
+    @Test
+    public void sourceRequestDuringDrawStillQueuesOneFollowUp() {
+        QueuePoster poster = new QueuePoster();
+        AtomicReference<FrameCoordinator> reference = new AtomicReference<>();
+        AtomicInteger calls = new AtomicInteger();
+        FrameCoordinator coordinator = new FrameCoordinator(poster, (source, scene) -> {
+            if (calls.getAndIncrement() == 0) {
+                reference.get().requestSourceFrame();
+                reference.get().requestSourceFrame();
+            }
+        });
+        reference.set(coordinator);
+
+        coordinator.requestScene();
         poster.runNext();
 
         assertEquals(1L, poster.size());
