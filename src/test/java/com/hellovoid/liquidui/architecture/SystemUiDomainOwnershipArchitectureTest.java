@@ -9,12 +9,13 @@ import org.junit.Test;
 
 public final class SystemUiDomainOwnershipArchitectureTest {
     private static final List<String> DOMAINS = List.of(
-            "controlcenter", "volume", "media", "statusbar", "keyguard", "misc");
+            "controlcenter", "volume", "media", "statusbar", "keyguard", "misc", "plugin");
     private static final List<String> FORBIDDEN = List.of(
             "EGL14",
             "GL_TEXTURE_EXTERNAL_OES",
             "SurfaceTexture",
             "SetPassBlurSurface",
+            "attachRenderer(",
             "HandlerThread",
             "PixelCopy",
             "ScreenCapture",
