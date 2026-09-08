@@ -12,6 +12,7 @@ import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
 import com.hellovoid.liquidui.glass.controlcenter.ControlCenterGlassHook;
 import com.hellovoid.liquidui.glass.core.SystemUiGlassCore;
 import com.hellovoid.liquidui.glass.core.WindowGlassSession;
+import com.hellovoid.liquidui.glass.media.MediaGlassHook;
 import com.hellovoid.liquidui.glass.notification.NotificationSharedGlassHook;
 import com.hellovoid.liquidui.hook.HookRegistryReport;
 import com.hellovoid.liquidui.hook.SystemUiHookRegistry;
@@ -98,6 +99,9 @@ public final class ModuleMain extends XposedModule {
                             processGlassCore,
                             config.notificationGlassEnabled()),
                     new ControlCenterGlassHook(
+                            new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
+                            processGlassCore),
+                    new MediaGlassHook(
                             new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
                             processGlassCore)));
             HookRegistryReport report = hookRegistry.installAll(classLoader, resolution.profile());
