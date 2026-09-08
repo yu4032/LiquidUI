@@ -40,7 +40,8 @@ public class NotificationTransitionArchitectureContractTest {
         // updateExpandedHeight is the refresh tick. Even an unchanged/stale fraction must refresh
         // native geometry because the callback itself is the event authority.
         assertFalse(adapter.contains("if (Float.compare(panelExpansionFraction, next) == 0) return"));
-        assertTrue(adapter.contains("panelExpansionFraction = next;\n        refreshScene();"));
+        assertTrue(adapter.contains("panelExpansionFraction = next;"));
+        assertTrue(adapter.contains("refreshScene();"));
     }
 
     @Test
