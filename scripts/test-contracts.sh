@@ -131,7 +131,7 @@ PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/core/MaterialProfi
 # Prismal parameter/profile DTOs are Android-free and are part of the glass mapping contract.
 PURE_MAIN+=("$ROOT/prismal/src/main/java/com/hellovoid/prismal/PrismalParams.java")
 PURE_MAIN+=("$ROOT/prismal/src/main/java/com/hellovoid/prismal/PrismalHighlightProfile.java")
-for f in NotificationGlassNode.java NotificationGlassSceneSnapshot.java NotificationGlassSceneState.java ZeroCopyProducerRecoveryState.java Miuix307BackdropMapping.java NotificationGlassActivityState.java NotificationShadeBlurPolicy.java NotificationPassBlurAuthorityState.java NotificationGlassPresentationState.java; do
+for f in NotificationGlassNode.java NotificationGlassSceneSnapshot.java NotificationGlassSceneState.java ZeroCopyProducerRecoveryState.java Miuix307BackdropMapping.java NotificationGlassActivityState.java NotificationShadeBlurPolicy.java NotificationPassBlurAuthorityState.java ShadeRootBlurLatchState.java NotificationGlassPresentationState.java; do
   if [[ -f "$ROOT/src/main/java/com/hellovoid/liquidui/glass/notification/$f" ]]; then
     PURE_MAIN+=("$ROOT/src/main/java/com/hellovoid/liquidui/glass/notification/$f")
   fi
