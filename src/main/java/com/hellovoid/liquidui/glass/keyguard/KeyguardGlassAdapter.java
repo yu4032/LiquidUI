@@ -26,6 +26,7 @@ public final class KeyguardGlassAdapter implements AutoCloseable {
     private final int startButtonId;
     private final int endButtonId;
     private final WeakHashMap<Object, Set<View>> sectionHosts = new WeakHashMap<>();
+    private final WeakHashMap<View, ButtonSlot> buttonSlots = new WeakHashMap<>();
 
     public KeyguardGlassAdapter(
             SystemUiGlassCore core,
@@ -50,50 +51,79 @@ public final class KeyguardGlassAdapter implements AutoCloseable {
         if (previous == null) previous = Collections.newSetFromMap(new IdentityHashMap<>());
         Set<View> next = Collections.newSetFromMap(new IdentityHashMap<>());
 
-        bindButton(root.findViewById(startButtonId), previous, next, 0);
-        bindButton(root.findViewById(endButtonId), previous, next, 1);
+        bindButton(root.findViewById(startButtonId), next, 0);
+        bindButton(root.findViewById(endButtonId), next, 1);
 
         for (View old : Set.copyOf(previous)) {
             if (next.contains(old)) continue;
-            hosts.unregister(old, "keyguard-shortcut-replaced");
-            material.forget(old);
+            releaseButton(old, "keyguard-shortcut-replaced");
         }
         sectionHosts.put(section, next);
     }
 
-    /** Explicit section teardown; detach remains a secondary fail-safe in the shared host controller. */
+    /** Explicit section teardown; detach remains a secondary fail-safe. */
     public void unbindSection(Object section) {
         if (section == null) return;
         Set<View> previous = sectionHosts.remove(section);
         if (previous == null) return;
         for (View host : Set.copyOf(previous)) {
-            hosts.unregister(host, "keyguard-shortcuts-removeViews");
-            material.forget(host);
+            releaseButton(host, "keyguard-shortcuts-removeViews");
         }
     }
 
     @Override
     public void close() {
+        for (View host : new ArrayList<>(buttonSlots.keySet())) {
+            releaseButton(host, "keyguard-adapter-close");
+        }
         hosts.close();
         material.restoreAll();
-        for (Map.Entry<Object, Set<View>> entry : new ArrayList<>(sectionHosts.entrySet())) {
-            for (View host : entry.getValue()) material.forget(host);
-        }
         sectionHosts.clear();
+        buttonSlots.clear();
     }
 
-    private void bindButton(View host, Set<View> previous, Set<View> next, int zOrder) {
+    private void bindButton(View host, Set<View> next, int zOrder) {
         if (host == null) {
             throw new IllegalStateException("systemui-001 Keyguard quick-affordance button missing");
         }
         next.add(host);
         material.observe(host);
-        GlassHostGeometry geometry = GlassHostGeometry.rounded(radiusPx(host), 1f, zOrder);
-        if (previous.contains(host)) {
-            hosts.update(host, geometry);
-        } else {
-            hosts.register(host, SystemUiMaterialHostKind.KEYGUARD_TILE, geometry, material);
+
+        ButtonSlot slot = buttonSlots.get(host);
+        if (slot == null) {
+            slot = new ButtonSlot(host);
+            buttonSlots.put(host, slot);
+            host.addOnAttachStateChangeListener(slot.listener);
         }
+        slot.zOrder = zOrder;
+        slot.radius = radiusPx(host);
+
+        if (host.isAttachedToWindow()) {
+            activate(slot);
+        }
+    }
+
+    private void activate(ButtonSlot slot) {
+        View host = slot.host;
+        GlassHostGeometry geometry = GlassHostGeometry.rounded(slot.radius, 1f, slot.zOrder);
+        if (slot.registered) {
+            hosts.update(host, geometry);
+            return;
+        }
+        hosts.register(host, SystemUiMaterialHostKind.KEYGUARD_TILE, geometry, material);
+        slot.registered = true;
+    }
+
+    private void releaseButton(View host, String reason) {
+        ButtonSlot slot = buttonSlots.remove(host);
+        if (slot != null) {
+            try { host.removeOnAttachStateChangeListener(slot.listener); } catch (Throwable ignored) {}
+            if (slot.registered) {
+                hosts.unregister(host, reason);
+                slot.registered = false;
+            }
+        }
+        material.forget(host);
     }
 
     private static float radiusPx(View host) {
@@ -103,5 +133,35 @@ public final class KeyguardGlassAdapter implements AutoCloseable {
             throw new IllegalStateException("missing SystemUI dimen " + RADIUS_DIMEN);
         }
         return Math.max(0f, host.getResources().getDimension(id));
+    }
+
+    private final class ButtonSlot {
+        final View host;
+        final View.OnAttachStateChangeListener listener = new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View v) {
+                try {
+                    activate(ButtonSlot.this);
+                } catch (Throwable error) {
+                    android.util.Log.e("LiquidUI",
+                            "[LUI][KeyguardGlass] affordance attach failed", error);
+                }
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View v) {
+                if (!registered) return;
+                hosts.unregister(v, "keyguard-affordance-detached");
+                registered = false;
+            }
+        };
+
+        int zOrder;
+        float radius;
+        boolean registered;
+
+        ButtonSlot(View host) {
+            this.host = Objects.requireNonNull(host, "host");
+        }
     }
 }
