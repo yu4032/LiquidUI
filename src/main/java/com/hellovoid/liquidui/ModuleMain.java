@@ -15,6 +15,7 @@ import com.hellovoid.liquidui.glass.core.WindowGlassSession;
 import com.hellovoid.liquidui.glass.media.MediaGlassHook;
 import com.hellovoid.liquidui.glass.media.MediaOutputDialogGlassHook;
 import com.hellovoid.liquidui.glass.notification.NotificationSharedGlassHook;
+import com.hellovoid.liquidui.glass.plugin.MiuiSystemUiPluginGlassHook;
 import com.hellovoid.liquidui.hook.HookRegistryReport;
 import com.hellovoid.liquidui.hook.SystemUiHookRegistry;
 import com.hellovoid.liquidui.target.FrameworkPackageVersionReader;
@@ -107,7 +108,13 @@ public final class ModuleMain extends XposedModule {
                             processGlassCore),
                     new MediaOutputDialogGlassHook(
                             new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
-                            processGlassCore)));
+                            processGlassCore),
+                    new MiuiSystemUiPluginGlassHook(
+                            new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()),
+                            new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
+                            (pluginClassLoader, pluginContext) -> () -> {
+                                // Dynamic lifecycle checkpoint; component sessions attach here.
+                            })));
             HookRegistryReport report = hookRegistry.installAll(classLoader, resolution.profile());
             if (report.hasFailures()) {
                 closeGlassConfigRuntime();
