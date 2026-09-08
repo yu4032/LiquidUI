@@ -101,7 +101,7 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
         final Method setRoundRect;
         final Method panelPassBlur;
         final Method shadeWindowAttached;
-        final Method requestChildrenUpdate;
+        final Method applyCurrentState;
         final Method setAnimationRunning;
         final Method blurProviderSetRatio;
         final Method blendBackgroundSetEnabled;
@@ -148,7 +148,7 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
             updateBackground = accessible(injectorClass.getDeclaredMethod("updateBackground$1"));
             rowDetached = accessible(rowClass.getDeclaredMethod("onDetachedFromWindow"));
             shadeWindowAttached = accessible(shadeWindowClass.getDeclaredMethod("onAttachedToWindow"));
-            requestChildrenUpdate = accessible(stackClass.getDeclaredMethod("requestChildrenUpdate"));
+            applyCurrentState = accessible(stackClass.getDeclaredMethod("applyCurrentState$1"));
             setAnimationRunning = accessible(
                     stackClass.getDeclaredMethod("setAnimationRunning", boolean.class));
             injectorViewField = accessible(injectorClass.getField("view"));
@@ -248,16 +248,15 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
                         }
                     })::unhook);
 
-            // Exact HyperOS notification geometry authority. NSSL coalesces scroll, height,
-            // expansion and reorder mutations through requestChildrenUpdate(), which installs its
-            // native mChildrenUpdater for the next pre-draw. Our one-shot listener is registered
-            // afterwards so it observes the geometry committed by that native updater.
+            // HyperOS commits the current ExpandableViewState values inside applyCurrentState$1().
+            // Capture only after that native commit so the root-level glass scene observes the same
+            // translations, clipping, grouping, and visibility that SystemUI just applied to rows.
             rollbacks.add(afterBackend.intercept(
-                    requestChildrenUpdate,
+                    applyCurrentState,
                     AfterMethodHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> {
                         if (thisObject instanceof View stack) {
-                            runtime.onChildrenUpdateRequested(stack);
+                            runtime.onNativeStateCommitted(stack);
                         }
                     })::unhook);
 
