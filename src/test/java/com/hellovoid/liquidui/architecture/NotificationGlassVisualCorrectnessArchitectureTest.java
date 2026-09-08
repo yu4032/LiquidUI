@@ -55,7 +55,16 @@ public class NotificationGlassVisualCorrectnessArchitectureTest {
         assertTrue(collector.contains("notification_item_bg_radius"));
         assertTrue(collector.contains("NATIVE_CARD_RADIUS_FALLBACK_DP = 24f"));
         assertTrue(collector.contains("nativeCardRadiusPx(background)"));
-        assertTrue(collector.contains("radius,\n                    radius,\n                    radius,\n                    radius"));
+        // The unoccluded card edges retain the exact native radius. Ancestor-clipped edges become
+        // square because the renderer is Window-level and must reproduce the page subtree clip.
+        assertTrue(collector.contains(
+                "float topLeftRadius = clippedLeft || clippedTop ? 0f : radius;"));
+        assertTrue(collector.contains(
+                "float topRightRadius = clippedRight || clippedTop ? 0f : radius;"));
+        assertTrue(collector.contains(
+                "float bottomRightRadius = clippedRight || clippedBottom ? 0f : radius;"));
+        assertTrue(collector.contains(
+                "float bottomLeftRadius = clippedLeft || clippedBottom ? 0f : radius;"));
         assertFalse(collector.contains("topCornerRadius.invoke(rowObject)"));
         assertFalse(collector.contains("bottomCornerRadius.invoke(rowObject)"));
     }
