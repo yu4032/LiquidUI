@@ -7,41 +7,51 @@ import java.nio.file.Path;
 
 import static org.junit.Assert.*;
 
-/** Locks notification glass to HyperOS transition authority instead of generic pre-draw polling. */
+/** Locks notification glass to the exact HyperOS NSSL geometry-update authority. */
 public class NotificationTransitionArchitectureContractTest {
     private static String source(String relative) throws Exception {
         return Files.readString(Path.of(relative));
     }
 
     @Test
-    public void notificationGeometryIsDrivenByNativeExpansionTicksNotPreDrawPolling() throws Exception {
+    public void notificationGeometryFollowsNativeNsslChildrenUpdateAuthority() throws Exception {
         String adapter = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassAdapter.java");
         String hook = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationSharedGlassHook.java");
         String runtime = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassRuntime.java");
 
-        assertFalse(adapter.contains("OnPreDrawListener"));
-        assertFalse(adapter.contains("addOnPreDrawListener"));
-        assertTrue(hook.contains("updateExpandedHeight"));
-        assertTrue(hook.contains("mExpandedFraction"));
-        assertTrue(hook.contains("onPanelExpansion"));
-        assertTrue(runtime.contains("onPanelExpansion"));
+        // Exact 16.03.251211.r decompilation: setOwnScrollY(), setExpandedHeight(), and
+        // onChildHeightChanged() converge on NotificationStackScrollLayout.requestChildrenUpdate().
+        // That method installs the native mChildrenUpdater for the next pre-draw frame.
+        assertTrue(hook.contains("requestChildrenUpdate"));
+        assertTrue(runtime.contains("onChildrenUpdateRequested"));
+        assertTrue(adapter.contains("scheduleAfterNativeChildrenUpdate"));
+
+        // LiquidUI may attach a coalesced one-shot listener after the native updater; it must not
+        // restore the old permanent notification pre-draw poll installed from the adapter ctor.
+        assertTrue(adapter.contains("OnPreDrawListener"));
+        assertTrue(adapter.contains("addOnPreDrawListener"));
+        assertTrue(adapter.contains("removeOnPreDrawListener"));
+        assertFalse(adapter.contains("installPreDraw(stack)"));
+
+        // NotificationPanelViewController expansion fraction is not the notification geometry
+        // authority: a fully expanded list can still scroll, reorder, resize, and animate.
+        assertFalse(hook.contains("updateExpandedHeight"));
+        assertFalse(hook.contains("mExpandedFraction"));
+        assertFalse(runtime.contains("onPanelExpansion"));
     }
 
     @Test
-    public void expansionFractionIsARefreshClockNotANodeLivenessGate() throws Exception {
+    public void notificationAnimationRefreshIsBoundedByNativeAnimationLifecycle() throws Exception {
         String adapter = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassAdapter.java");
+        String hook = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationSharedGlassHook.java");
+        String runtime = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassRuntime.java");
 
-        // The field is observational timing only. On this HyperOS build a missing/stale fraction
-        // must not leave every notification node permanently unpublished after pre-draw polling was
-        // removed. Effective visibility is owned by the native View hierarchy in the collector.
-        assertFalse(adapter.contains("boolean panelVisible = panelExpansionFraction > 0f"));
-        assertFalse(adapter.contains("if (!panelVisible) continue"));
-
-        // updateExpandedHeight is the refresh tick. Even an unchanged/stale fraction must refresh
-        // native geometry because the callback itself is the event authority.
-        assertFalse(adapter.contains("if (Float.compare(panelExpansionFraction, next) == 0) return"));
-        assertTrue(adapter.contains("panelExpansionFraction = next;"));
-        assertTrue(adapter.contains("refreshScene();"));
+        // Exact NSSL exposes setAnimationRunning(boolean) around its property-animation phase.
+        // Per-frame glass geometry refresh is allowed only while this native lifecycle is active.
+        assertTrue(hook.contains("setAnimationRunning"));
+        assertTrue(runtime.contains("onAnimationRunning"));
+        assertTrue(adapter.contains("setNativeAnimationRunning"));
+        assertTrue(adapter.contains("removeAnimationPreDraw"));
     }
 
     @Test
@@ -58,11 +68,7 @@ public class NotificationTransitionArchitectureContractTest {
         String collector = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java");
         String material = source("src/main/java/com/hellovoid/liquidui/glass/notification/LegacyNotificationVendorMaterialController.java");
 
-        // Shared presentation intentionally hides only the native material target with alpha=0.
         assertTrue(material.contains("background.setAlpha(0f)"));
-
-        // Effective visibility must therefore start at the row/page hierarchy, not at the
-        // background View that LiquidUI itself suppresses after authorization.
         assertTrue(collector.contains("effectiveAncestorAlpha(row)"));
         assertFalse(collector.contains("effectiveAncestorAlpha(background)"));
     }
