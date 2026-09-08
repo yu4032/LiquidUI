@@ -25,7 +25,14 @@ public class NotificationGlassPerformanceArchitectureTest {
         assertTrue(tuner.contains("GAUSSIAN_FRAGMENT"));
         assertTrue(tuner.contains("params.blurRadiusPx <= 0f"));
         assertTrue(tuner.contains("renderer.renderBlur(params)"));
-        assertTrue(compositor.contains("PrismalPerformanceTuner.prepareNodeBackdrop(renderer, state.params())"));
+
+        // PrismalRenderer.prepareBackdrop already materializes the base CARD blur. Scene-only
+        // geometry frames must reuse it instead of unconditionally executing Gaussian again.
+        assertTrue(compositor.contains("if (!renderer.glassFrameBegun)"));
+        assertTrue(compositor.contains("blurReuseState.onBackdropPrepared"));
+        assertTrue(compositor.contains("blurReuseState.needsRebuild(blurRadius)"));
+        assertTrue(compositor.contains("!PrismalPerformanceTuner.modeMatches(renderer, params)"));
+        assertTrue(compositor.contains("PrismalPerformanceTuner.prepareNodeBackdrop(renderer, params)"));
     }
 
     @Test
