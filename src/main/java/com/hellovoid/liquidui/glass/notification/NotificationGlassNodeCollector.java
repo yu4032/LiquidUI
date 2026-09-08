@@ -1,5 +1,7 @@
 package com.hellovoid.liquidui.glass.notification;
 
+import android.graphics.Point;
+import android.graphics.Rect;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
@@ -93,30 +95,63 @@ final class NotificationGlassNodeCollector {
             int visibleHeight = expand ? actualHeight : Math.max(0, actualHeight - clipBottom);
             if (actualWidth <= 0 || visibleHeight <= 0) return null;
 
-            int[] bgScreen = new int[2];
+            // The shared renderer lives directly under NotificationShadeWindowView, outside the
+            // notification page subtree. Reconstruct the exact native visible rectangle here so
+            // parent translation/clip during Shade expansion is inherited instead of drawing the
+            // row's final-layout card early at the Window root.
+            Rect globalVisible = new Rect();
+            Point globalOffset = new Point();
+            if (!background.getGlobalVisibleRect(globalVisible, globalOffset)
+                    || globalVisible.isEmpty()) return null;
+
+            int cardLeft = globalOffset.x + leftOffset;
+            int cardTop = globalOffset.y;
+            int cardRight = cardLeft + actualWidth;
+            int cardBottom = cardTop + visibleHeight;
+            Rect clipped = new Rect(
+                    Math.max(cardLeft, globalVisible.left),
+                    Math.max(cardTop, globalVisible.top),
+                    Math.min(cardRight, globalVisible.right),
+                    Math.min(cardBottom, globalVisible.bottom));
+            if (clipped.isEmpty()) return null;
+
             int[] hostScreen = new int[2];
-            background.getLocationOnScreen(bgScreen);
             host.getLocationOnScreen(hostScreen);
-            float left = bgScreen[0] - hostScreen[0] + leftOffset;
-            float top = bgScreen[1] - hostScreen[1];
+            float left = clipped.left - hostScreen[0];
+            float top = clipped.top - hostScreen[1];
+            int nodeWidth = clipped.width();
+            int nodeHeight = clipped.height();
+            if (nodeWidth <= 0 || nodeHeight <= 0) return null;
+
+            float alpha = effectiveAncestorAlpha(background);
+            if (alpha <= 0.001f) return null;
 
             // Match NotificationUtil#setRoundRect's stable native card silhouette instead of
-            // ExpandableNotificationRow#getTop/BottomCornerRadius. Those accessors multiply the
-            // base radius by transient row roundness, which collapses the glass radius at rest.
+            // ExpandableNotificationRow#getTop/BottomCornerRadius. When an ancestor clips an edge,
+            // that newly exposed clip edge is square just like the native subtree clip.
             float radius = nativeCardRadiusPx(background);
             radius = Math.min(radius, Math.min(actualWidth, visibleHeight) * 0.5f);
+            boolean clippedLeft = clipped.left > cardLeft;
+            boolean clippedTop = clipped.top > cardTop;
+            boolean clippedRight = clipped.right < cardRight;
+            boolean clippedBottom = clipped.bottom < cardBottom;
+            float topLeftRadius = clippedLeft || clippedTop ? 0f : radius;
+            float topRightRadius = clippedRight || clippedTop ? 0f : radius;
+            float bottomRightRadius = clippedRight || clippedBottom ? 0f : radius;
+            float bottomLeftRadius = clippedLeft || clippedBottom ? 0f : radius;
+
             return new GlassNode(
                     id,
                     lifecycleGeneration,
                     left,
                     top,
-                    actualWidth,
-                    visibleHeight,
-                    radius,
-                    radius,
-                    radius,
-                    radius,
-                    row.getAlpha(),
+                    nodeWidth,
+                    nodeHeight,
+                    topLeftRadius,
+                    topRightRadius,
+                    bottomRightRadius,
+                    bottomLeftRadius,
+                    alpha,
                     zOrder,
                     GlassMaterialProfile.CARD);
         } catch (Throwable ignored) {
@@ -135,6 +170,18 @@ final class NotificationGlassNodeCollector {
         if (!Float.isFinite(z)) z = 0f;
         int zBucket = Math.round(Math.max(-1000f, Math.min(1000f, z)) * 1000f);
         return zBucket * 10_000 + Math.min(9_999, childIndex);
+    }
+
+    private static float effectiveAncestorAlpha(View view) {
+        float alpha = 1f;
+        View current = view;
+        while (current != null) {
+            alpha *= Math.max(0f, Math.min(1f, current.getAlpha()));
+            if (alpha <= 0.001f) return 0f;
+            ViewParent parent = current.getParent();
+            current = parent instanceof View parentView ? parentView : null;
+        }
+        return alpha;
     }
 
     private static float nativeCardRadiusPx(View background) {
