@@ -45,4 +45,17 @@ public final class MiuiSystemUiPluginGlassBridgeArchitectureTest {
         assertFalse(combined.contains("PixelCopy"));
         assertFalse(combined.contains("ScreenCapture"));
     }
+
+    @Test
+    public void multiplePluginInstanceWrappersShareOneSessionPerClassLoader() throws Exception {
+        String hook = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/plugin/MiuiSystemUiPluginGlassHook.java"));
+
+        assertTrue(hook.contains("IdentityHashMap<Object, ClassLoader> pluginOwners"));
+        assertTrue(hook.contains("IdentityHashMap<ClassLoader, SharedPluginSession> sharedPluginSessions"));
+        assertTrue(hook.contains("acquirePluginSession("));
+        assertTrue(hook.contains("releasePluginOwner("));
+        assertTrue(hook.contains("owners.isEmpty()"));
+        assertFalse(hook.contains("IdentityHashMap<Object, AutoCloseable> pluginSessions"));
+    }
 }
