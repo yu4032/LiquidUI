@@ -99,9 +99,11 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
     /** Follow property translation animations only while NSSL reports its native animation phase. */
     void setNativeAnimationRunning(boolean running) {
         if (isShutdown()) return;
+        boolean changed = nativeAnimationRunning != running;
         nativeAnimationRunning = running;
         if (running) installAnimationPreDraw();
         else removeAnimationPreDraw();
+        if (changed) log("native animation running=" + running);
         refreshScene();
     }
 
