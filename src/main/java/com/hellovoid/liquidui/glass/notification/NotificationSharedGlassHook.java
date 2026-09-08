@@ -57,6 +57,8 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
             "com.android.systemui.shade.NotificationShadeWindowView";
     private static final String NOTIFICATION_PANEL =
             "com.android.systemui.shade.NotificationPanelView";
+    private static final String SHARED_NOTIFICATION_CONTAINER =
+            "com.android.systemui.statusbar.notification.stack.ui.view.SharedNotificationContainer";
     private static final String CONTROL_CENTER_CONTAINER =
             "com.miui.systemui.controlcenter.container.ControlCenterContainer";
     private static final String BLUR_UTILS = "com.android.systemui.statusbar.BlurUtils";
@@ -110,6 +112,7 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
         final Field blendBackgroundView;
         final Class<?> shadeWindowClass;
         final Class<?> notificationPanelClass;
+        final Class<?> sharedNotificationContainerClass;
         final Class<?> controlCenterContainerClass;
         final NotificationMaterialTargetRegistry targetRegistry;
         final NotificationVendorMaterialController fallbackController;
@@ -134,6 +137,8 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
             Class<?> blendBackgroundClass = TargetClassResolver.require(classLoader, SHADE_BLEND_BACKGROUND);
             shadeWindowClass = TargetClassResolver.require(classLoader, SHADE_WINDOW);
             notificationPanelClass = TargetClassResolver.require(classLoader, NOTIFICATION_PANEL);
+            sharedNotificationContainerClass =
+                    TargetClassResolver.require(classLoader, SHARED_NOTIFICATION_CONTAINER);
             controlCenterContainerClass = TargetClassResolver.require(classLoader, CONTROL_CENTER_CONTAINER);
             Class<?> blurUtilsClass = TargetClassResolver.require(classLoader, BLUR_UTILS);
             Class<?> viewRootImplClass = TargetClassResolver.require(classLoader, VIEW_ROOT_IMPL);
@@ -304,18 +309,22 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
                         }
                     })::unhook);
 
-            // Large page backdrops must remain transparent above the root-level glass renderer.
-            // Only bounded row/tile/card materials are handed off after successful glass swaps.
+            // Preserve HyperOS's Window-level combined backdrop below the shared renderer. Only
+            // notification/control-center page-local backdrops above the renderer stay transparent.
             rollbacks.add(argumentBackend.intercept(
                     blurProviderSetRatio,
                     ArgumentRewriteHookBackend.PRIORITY_HIGHEST,
                     (thisObject, args) -> {
                         if (args.length == 0 || !(args[0] instanceof Float requested)) return;
                         Object target = blurProviderView.get(thisObject);
-                        if (!isShadeBlurTarget(
-                                target, shadeWindowClass, notificationPanelClass,
-                                controlCenterContainerClass)) return;
-                        args[0] = NotificationShadeBlurPolicy.blurRatio(true, requested);
+                        if (shadeWindowClass.isInstance(target)) {
+                            args[0] = NotificationShadeBlurPolicy.rootBlurRatio(requested);
+                            return;
+                        }
+                        if (!isPageShadeBlurTarget(
+                                target, notificationPanelClass,
+                                controlCenterContainerClass, shadeWindowClass)) return;
+                        args[0] = NotificationShadeBlurPolicy.pageBlurRatio(requested);
                         if (target instanceof View view) setMiBackgroundBlurMode.invoke(view, 0);
                     })::unhook);
             rollbacks.add(argumentBackend.intercept(
@@ -324,10 +333,14 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
                     (thisObject, args) -> {
                         if (args.length == 0 || !(args[0] instanceof Boolean requested)) return;
                         Object target = blendBackgroundView.get(thisObject);
-                        if (!isShadeBlendTarget(
-                                target, shadeWindowClass, notificationPanelClass,
-                                controlCenterContainerClass)) return;
-                        args[0] = NotificationShadeBlurPolicy.enabled(true, requested);
+                        if (isRootShadeBlendTarget(target, shadeWindowClass)) {
+                            args[0] = NotificationShadeBlurPolicy.rootBlendEnabled(requested);
+                            return;
+                        }
+                        if (!isPageShadeBlendTarget(
+                                target, notificationPanelClass, sharedNotificationContainerClass,
+                                controlCenterContainerClass, shadeWindowClass)) return;
+                        args[0] = NotificationShadeBlurPolicy.pageBlendEnabled(requested);
                     })::unhook);
             rollbacks.add(argumentBackend.intercept(
                     blurUtilsApplyBlur,
@@ -336,7 +349,7 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
                         if (args.length < 2 || !(args[1] instanceof Integer requested)) return;
                         Object rootView = args[0] == null ? null : viewRootGetView.invoke(args[0]);
                         if (!shadeWindowClass.isInstance(rootView)) return;
-                        args[1] = NotificationShadeBlurPolicy.blurRadius(true, requested);
+                        args[1] = NotificationShadeBlurPolicy.rootWindowBlurRadius(requested);
                     })::unhook);
 
             android.util.Log.i("LiquidUI",
@@ -359,25 +372,30 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
         return shadeWindowClass.isInstance(view.getParent());
     }
 
-    private static boolean isShadeBlurTarget(
+    private static boolean isPageShadeBlurTarget(
             Object value,
-            Class<?> shadeWindowClass,
             Class<?> notificationPanelClass,
-            Class<?> controlCenterContainerClass) {
-        return shadeWindowClass.isInstance(value)
-                || notificationPanelClass.isInstance(value)
+            Class<?> controlCenterContainerClass,
+            Class<?> shadeWindowClass) {
+        return notificationPanelClass.isInstance(value)
                 || isRootControlCenterContainer(value, controlCenterContainerClass, shadeWindowClass);
     }
 
-    private static boolean isShadeBlendTarget(
+    private static boolean isRootShadeBlendTarget(Object value, Class<?> shadeWindowClass) {
+        if (!(value instanceof View view)) return false;
+        return shadeWindowClass.isInstance(view.getParent());
+    }
+
+    private static boolean isPageShadeBlendTarget(
             Object value,
-            Class<?> shadeWindowClass,
             Class<?> notificationPanelClass,
-            Class<?> controlCenterContainerClass) {
+            Class<?> sharedNotificationContainerClass,
+            Class<?> controlCenterContainerClass,
+            Class<?> shadeWindowClass) {
         if (!(value instanceof View view)) return false;
         Object parent = view.getParent();
-        return shadeWindowClass.isInstance(parent)
-                || notificationPanelClass.isInstance(parent)
+        return notificationPanelClass.isInstance(parent)
+                || sharedNotificationContainerClass.isInstance(parent)
                 || (controlCenterContainerClass.isInstance(parent)
                     && parent instanceof View parentView
                     && shadeWindowClass.isInstance(parentView.getParent()));
