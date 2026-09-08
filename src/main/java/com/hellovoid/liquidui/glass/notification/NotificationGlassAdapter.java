@@ -1,6 +1,7 @@
 package com.hellovoid.liquidui.glass.notification;
 
 import android.view.View;
+import android.view.ViewTreeObserver;
 
 import com.hellovoid.liquidui.Api101Bridge;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
@@ -41,10 +42,14 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
     private final WeakHashMap<Object, Boolean> wrappers = new WeakHashMap<>();
     private final Set<String> authorizedNodeIds = new HashSet<>();
 
+    private ViewTreeObserver childrenUpdateObserver;
+    private ViewTreeObserver.OnPreDrawListener childrenUpdateListener;
+    private ViewTreeObserver animationObserver;
+    private ViewTreeObserver.OnPreDrawListener animationPreDrawListener;
     private List<GlassNode> lastNodes = List.of();
     private long identitySequence;
     private long lifecycleGeneration;
-    private float panelExpansionFraction;
+    private boolean nativeAnimationRunning;
     private boolean shadeBlurSuppressionActive;
     private boolean shutdown;
 
@@ -87,12 +92,52 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
         return !isShutdown() && state != null && state.active;
     }
 
-    void onPanelExpansion(float fraction) {
+    /**
+     * Runs once on the same pre-draw frame that HyperOS scheduled through
+     * NotificationStackScrollLayout.requestChildrenUpdate(). The hook is installed after the
+     * native mChildrenUpdater, so collection observes the committed row translations/clips.
+     */
+    void scheduleAfterNativeChildrenUpdate() {
+        if (isShutdown() || childrenUpdateListener != null) return;
+        View stack = stackRef.get();
+        if (stack == null || !stack.isAttachedToWindow()) return;
+        ViewTreeObserver observer = stack.getViewTreeObserver();
+        if (observer == null || !observer.isAlive()) return;
+
+        ViewTreeObserver.OnPreDrawListener listener = new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                ViewTreeObserver registeredObserver = childrenUpdateObserver;
+                if (childrenUpdateListener == this) {
+                    childrenUpdateListener = null;
+                    childrenUpdateObserver = null;
+                }
+                try {
+                    if (registeredObserver != null && registeredObserver.isAlive()) {
+                        registeredObserver.removeOnPreDrawListener(this);
+                    }
+                } catch (Throwable ignored) {}
+                refreshScene();
+                return true;
+            }
+        };
+        childrenUpdateObserver = observer;
+        childrenUpdateListener = listener;
+        try {
+            observer.addOnPreDrawListener(listener);
+        } catch (Throwable error) {
+            childrenUpdateObserver = null;
+            childrenUpdateListener = null;
+            log("children-update frame registration failed: " + error);
+        }
+    }
+
+    /** Follow property translation animations only while NSSL reports its native animation phase. */
+    void setNativeAnimationRunning(boolean running) {
         if (isShutdown()) return;
-        float next = Math.max(0f, Math.min(1f, fraction));
-        panelExpansionFraction = next;
-        // updateExpandedHeight itself is the native transition tick. The fraction is diagnostic
-        // state only: stale/unchanged values must not suppress a geometry refresh.
+        nativeAnimationRunning = running;
+        if (running) installAnimationPreDraw();
+        else removeAnimationPreDraw();
         refreshScene();
     }
 
@@ -168,6 +213,8 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
     void shutdown(String reason) {
         if (shutdown) return;
         shutdown = true;
+        removeChildrenUpdatePreDraw();
+        removeAnimationPreDraw();
         try { binding.close(); } catch (Throwable ignored) {}
         authorizedNodeIds.clear();
         materialController.restoreAll();
@@ -180,10 +227,55 @@ final class NotificationGlassAdapter implements WindowGlassSession.AdapterPresen
 
     private void failClosed(String reason) {
         shutdown = true;
+        removeChildrenUpdatePreDraw();
+        removeAnimationPreDraw();
         authorizedNodeIds.clear();
         materialController.restoreAll();
         setShadeBlurSuppression(false);
         log("native fallback reason=" + reason);
+    }
+
+    private void installAnimationPreDraw() {
+        if (!nativeAnimationRunning || animationPreDrawListener != null || isShutdown()) return;
+        View stack = stackRef.get();
+        if (stack == null || !stack.isAttachedToWindow()) return;
+        ViewTreeObserver observer = stack.getViewTreeObserver();
+        if (observer == null || !observer.isAlive()) return;
+        ViewTreeObserver.OnPreDrawListener listener = () -> {
+            if (nativeAnimationRunning && !isShutdown()) refreshScene();
+            return true;
+        };
+        animationObserver = observer;
+        animationPreDrawListener = listener;
+        try {
+            observer.addOnPreDrawListener(listener);
+        } catch (Throwable error) {
+            animationObserver = null;
+            animationPreDrawListener = null;
+            log("animation frame registration failed: " + error);
+        }
+    }
+
+    private void removeChildrenUpdatePreDraw() {
+        ViewTreeObserver observer = childrenUpdateObserver;
+        ViewTreeObserver.OnPreDrawListener listener = childrenUpdateListener;
+        childrenUpdateObserver = null;
+        childrenUpdateListener = null;
+        if (observer == null || listener == null) return;
+        try {
+            if (observer.isAlive()) observer.removeOnPreDrawListener(listener);
+        } catch (Throwable ignored) {}
+    }
+
+    private void removeAnimationPreDraw() {
+        ViewTreeObserver observer = animationObserver;
+        ViewTreeObserver.OnPreDrawListener listener = animationPreDrawListener;
+        animationObserver = null;
+        animationPreDrawListener = null;
+        if (observer == null || listener == null) return;
+        try {
+            if (observer.isAlive()) observer.removeOnPreDrawListener(listener);
+        } catch (Throwable ignored) {}
     }
 
     private void refreshScene() {
