@@ -17,11 +17,13 @@ public final class GenericWindowPassBlurAuthorityArchitectureTest {
                 "src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassAdapter.java"));
 
         // Notification has an explicit, reverse-engineered authority state for its known Shade root.
+        assertTrue(notification.contains("session.attachRenderer("));
         assertTrue(notification.contains("authorityState.isEnabled()"));
 
-        // A generic plugin/control-center/volume Window has no such authority yet. It may create
-        // a renderer for shared composition, but it must leave the vendor PassBlur endpoint closed.
-        assertTrue(genericHost.contains("attachRenderer(anchor, rootGroup, 0, false)"));
-        assertFalse(genericHost.contains("attachRenderer(anchor, rootGroup, 0, true)"));
+        // Generic plugin/control-center/volume adapters have no producer authority of their own.
+        // They may only reuse a renderer that an exact authority owner already established.
+        assertTrue(genericHost.contains("session.sceneHost()"));
+        assertFalse(genericHost.contains("attachRenderer("));
+        assertFalse(genericHost.contains("SetPassBlurSurface"));
     }
 }
