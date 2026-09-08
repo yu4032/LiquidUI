@@ -53,11 +53,12 @@ public final class MiuiSecondaryPanelPluginGlassAdapter implements AutoCloseable
         }
         if (state.host == null) {
             state.host = host;
+            final PanelState listenerState = state;
             state.attachListener = new View.OnAttachStateChangeListener() {
                 @Override
                 public void onViewAttachedToWindow(View v) {
                     try {
-                        registerIfReady(state);
+                        registerIfReady(listenerState);
                     } catch (Throwable error) {
                         android.util.Log.e("LiquidUI",
                                 "[LUI][PluginSecondary] attach register failed", error);
@@ -66,7 +67,7 @@ public final class MiuiSecondaryPanelPluginGlassAdapter implements AutoCloseable
 
                 @Override
                 public void onViewDetachedFromWindow(View v) {
-                    state.registered = false;
+                    listenerState.registered = false;
                 }
             };
             host.addOnAttachStateChangeListener(state.attachListener);
