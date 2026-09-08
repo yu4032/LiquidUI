@@ -8,22 +8,18 @@ import java.nio.file.Path;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-/** Regression contract: GL scene/source drains are display-vsync bounded, never immediate-looped. */
+/** Regression contract: scene-only requests cannot form an immediate render self-loop. */
 public final class WindowGlassVsyncSchedulingArchitectureTest {
     private static String read(String path) throws Exception {
         return Files.readString(Path.of(path));
     }
 
     @Test
-    public void coordinatorUsesDisplayChoreographerBeforeRenderThreadDrain() throws Exception {
+    public void coordinatorOnlySelfSchedulesForUnconsumedSourceFrames() throws Exception {
         String coordinator = read(
                 "src/main/java/com/hellovoid/liquidui/glass/core/FrameCoordinator.java");
-        String renderer = read(
-                "src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java");
 
-        assertTrue(coordinator.contains("Choreographer.getInstance()"));
-        assertTrue(coordinator.contains("postFrameCallback"));
-        assertTrue(renderer.contains("command -> this.renderHandler.post(command)"));
-        assertFalse(coordinator.contains("poster.post(this::drainOnce);\n        }\n    }\n\n    private void drainOnce"));
+        assertTrue(coordinator.contains("if (!cancelled && sourcePending)"));
+        assertFalse(coordinator.contains("if (!cancelled && (sourcePending || scenePending))"));
     }
 }
