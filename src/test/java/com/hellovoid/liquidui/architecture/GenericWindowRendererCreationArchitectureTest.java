@@ -33,6 +33,6 @@ public final class GenericWindowRendererCreationArchitectureTest {
         assertTrue(authority.contains("NotificationShadeWindowView"));
         assertTrue(authority.contains("SharedNotificationContainer"));
         assertTrue(authority.contains("ControlCenterContainer"));
-        assertTrue(authority.contains("authorityState.isEnabled()"));
+        assertTrue(authority.contains("root, root, insertionIndex, true"));
     }
 }
