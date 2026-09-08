@@ -20,6 +20,12 @@ import java.util.WeakHashMap;
  * page. It is inserted directly after the root ShadeBackgroundView, below both pages' native
  * foreground content. The page-level blur/blend backgrounds are neutralized by
  * NotificationSharedGlassHook while their foreground Views remain untouched.</p>
+ *
+ * <p>Important authority split: notifPassBlur/ctrlPassBlur are native page material state. On the
+ * exact target they intentionally become false for ordinary unlocked Shade states, so they are not
+ * permission for LiquidUI's own Window-scoped SetPassBlurSurface consumer. Producer lifetime is
+ * owned by this attached Shade Window and demand is still controlled by WindowGlassSession's
+ * active adapter bindings.</p>
  */
 final class ShadeWindowGlassAuthority implements AutoCloseable {
     private static final String TAG = "[ShadeWindowGlass]";
@@ -54,8 +60,6 @@ final class ShadeWindowGlassAuthority implements AutoCloseable {
     }
 
     private final WeakReference<View> shadeWindowRef;
-    private final NotificationPassBlurAuthorityState authorityState;
-    private final NotificationPassBlurAuthorityState.Listener authorityListener;
     private final WindowGlassSession session;
     private final View.OnAttachStateChangeListener attachListener;
     private boolean closed;
@@ -66,29 +70,19 @@ final class ShadeWindowGlassAuthority implements AutoCloseable {
             NotificationPassBlurAuthorityState authorityState) {
         verifyExactShadeHierarchy(root);
         this.shadeWindowRef = new WeakReference<>(root);
-        this.authorityState = authorityState;
 
-        // HyperOS updates setPassWindowBlurEnabled only when BlurProvider.passBlur changes. The
-        // Window renderer may be installed after that edge has already happened, so bootstrap from
-        // the two page roots' current vendor state before deciding whether the producer may bind.
+        // Preserve exact native page state for diagnostics/material policy. These values are NOT
+        // the gate for LiquidUI's own Window producer; unlocked Shade legitimately reports false.
         observeCurrentPassBlurAuthority(root, authorityState);
 
         this.session = glassCore.sessionFor(root);
         int insertionIndex = rendererInsertionIndex(root);
         View sceneHost = session.attachRenderer(
-                root, root, insertionIndex, authorityState.isEnabled());
+                root, root, insertionIndex, true);
         if (sceneHost == null) {
             throw new IllegalStateException("NotificationShade Window renderer unavailable");
         }
 
-        this.authorityListener = enabled -> {
-            if (closed || session.isClosed()) return;
-            session.setVendorPassBlurEnabled(enabled, "shade-window-aggregate-authority");
-            log("aggregate authority=" + enabled
-                    + " notif=" + authorityState.isNotificationEnabled()
-                    + " controlCenter=" + authorityState.isControlCenterEnabled());
-        };
-        authorityState.addListener(authorityListener);
         this.attachListener = new View.OnAttachStateChangeListener() {
             @Override public void onViewAttachedToWindow(View v) {}
             @Override public void onViewDetachedFromWindow(View v) { close(); }
@@ -96,14 +90,15 @@ final class ShadeWindowGlassAuthority implements AutoCloseable {
         root.addOnAttachStateChangeListener(attachListener);
         log("renderer attached root=" + root.getClass().getName()
                 + " index=" + insertionIndex
-                + " gate=" + authorityState.isEnabled());
+                + " producerGate=shade-window-owned"
+                + " nativeNotifPassBlur=" + authorityState.isNotificationEnabled()
+                + " nativeCtrlPassBlur=" + authorityState.isControlCenterEnabled());
     }
 
     @Override
     public void close() {
         if (closed) return;
         closed = true;
-        authorityState.removeListener(authorityListener);
         View shadeWindow = shadeWindowRef.get();
         if (shadeWindow != null) {
             try { shadeWindow.removeOnAttachStateChangeListener(attachListener); } catch (Throwable ignored) {}
@@ -130,11 +125,11 @@ final class ShadeWindowGlassAuthority implements AutoCloseable {
                     getPassWindowBlurEnabled.invoke(controlCenter));
             authorityState.observeNotification(notificationEnabled);
             authorityState.observeControlCenter(controlCenterEnabled);
-            log("initial authority notif=" + notificationEnabled
-                    + " controlCenter=" + controlCenterEnabled);
+            log("initial native page state notifPassBlur=" + notificationEnabled
+                    + " ctrlPassBlur=" + controlCenterEnabled);
         } catch (Throwable error) {
             throw new IllegalStateException(
-                    "systemui-001 current PassBlur authority unavailable", error);
+                    "systemui-001 current PassBlur page state unavailable", error);
         }
     }
 
