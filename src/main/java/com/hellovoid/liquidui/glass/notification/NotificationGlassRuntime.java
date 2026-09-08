@@ -25,7 +25,7 @@ final class NotificationGlassRuntime {
     private final WeakHashMap<View, NotificationGlassAdapter> adapters = new WeakHashMap<>();
     private final WeakHashMap<Object, NotificationGlassAdapter> rowOwners = new WeakHashMap<>();
     private final WeakHashMap<Object, List<WeakReference<Object>>> pendingWrappers = new WeakHashMap<>();
-    private float panelExpansionFraction;
+    private final WeakHashMap<View, Boolean> nativeAnimationRunning = new WeakHashMap<>();
 
     NotificationGlassRuntime(
             SystemUiGlassCore glassCore,
@@ -42,12 +42,23 @@ final class NotificationGlassRuntime {
         this.authorityState = authorityState;
     }
 
-    void onPanelExpansion(float fraction) {
-        float next = Math.max(0f, Math.min(1f, fraction));
-        if (Float.compare(panelExpansionFraction, next) == 0) return;
-        panelExpansionFraction = next;
-        for (NotificationGlassAdapter adapter : new ArrayList<>(adapters.values())) {
-            if (adapter != null && !adapter.isShutdown()) adapter.onPanelExpansion(next);
+    /** Called after HyperOS NSSL.requestChildrenUpdate() has installed its native updater. */
+    void onChildrenUpdateRequested(View stack) {
+        if (stack == null) return;
+        NotificationGlassAdapter adapter = adapters.get(stack);
+        if (adapter != null && !adapter.isShutdown()) {
+            adapter.scheduleAfterNativeChildrenUpdate();
+        }
+    }
+
+    /** Mirrors the exact NSSL animation lifecycle so per-frame geometry work is bounded. */
+    void onAnimationRunning(View stack, boolean running) {
+        if (stack == null) return;
+        if (running) nativeAnimationRunning.put(stack, Boolean.TRUE);
+        else nativeAnimationRunning.remove(stack);
+        NotificationGlassAdapter adapter = adapters.get(stack);
+        if (adapter != null && !adapter.isShutdown()) {
+            adapter.setNativeAnimationRunning(running);
         }
     }
 
@@ -74,7 +85,8 @@ final class NotificationGlassRuntime {
                         collector,
                         materialControllerPrototype.fork(),
                         activityState);
-                adapter.onPanelExpansion(panelExpansionFraction);
+                adapter.setNativeAnimationRunning(
+                        Boolean.TRUE.equals(nativeAnimationRunning.get(stack)));
             } catch (Throwable error) {
                 log("row attach native fallback: " + error);
                 return;
