@@ -15,12 +15,15 @@ public final class WindowGlassVsyncSchedulingArchitectureTest {
     }
 
     @Test
-    public void sharedRendererSchedulesCoordinatorAtUiVsyncThenHandsOffToGlThread() throws Exception {
+    public void coordinatorUsesDisplayChoreographerBeforeRenderThreadDrain() throws Exception {
+        String coordinator = read(
+                "src/main/java/com/hellovoid/liquidui/glass/core/FrameCoordinator.java");
         String renderer = read(
                 "src/main/java/com/hellovoid/liquidui/glass/core/WindowGlassRenderer.java");
 
-        assertTrue(renderer.contains("postOnAnimation(() -> renderHandler.post(command))"));
-        assertFalse(renderer.contains(
-                "frameCoordinator = new FrameCoordinator(\n                command -> this.renderHandler.post(command)"));
+        assertTrue(coordinator.contains("Choreographer.getInstance()"));
+        assertTrue(coordinator.contains("postFrameCallback"));
+        assertTrue(renderer.contains("command -> this.renderHandler.post(command)"));
+        assertFalse(coordinator.contains("poster.post(this::drainOnce);\n        }\n    }\n\n    private void drainOnce"));
     }
 }
