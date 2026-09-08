@@ -3,17 +3,24 @@ package com.hellovoid.liquidui.glass.notification;
 /**
  * Pure rewrite policy for HyperOS Shade background material.
  *
- * <p>The Window-level combined backdrop stays vendor-owned and is preserved. Only page-local
- * notification/control-center backdrops are neutralized because they sit above LiquidUI's shared
- * Shade renderer and would otherwise obscure bounded glass nodes.</p>
+ * <p>The Window-level MIUI blur remains vendor-owned, but its radius is latched to one stable
+ * value while Shade is visible. HyperOS otherwise rewrites the root blur radius every drag frame,
+ * which forces repeated compositor blur reconfiguration and adds presentation latency. Page-local
+ * notification/control-center backdrops remain neutralized because they sit above LiquidUI's
+ * shared Shade renderer.</p>
  */
 final class NotificationShadeBlurPolicy {
     private NotificationShadeBlurPolicy() {}
 
+    /**
+     * Keep one stable full-strength root blur for the lifetime of a visible Shade gesture.
+     * Blend/background alpha can still animate independently; the expensive blur kernel does not.
+     */
     static float rootBlurRatio(float requested) {
-        return requested;
+        return requested > 0f ? 1f : 0f;
     }
 
+    /** AOSP window blur is HyperOS's fallback when MIUI blur is unavailable; preserve that path. */
     static int rootWindowBlurRadius(int requested) {
         return requested;
     }
