@@ -51,4 +51,12 @@ public final class SystemUiGlassHostControllerArchitectureTest {
         assertTrue(controller.contains("onTerminalFailure"));
         assertTrue(controller.contains("failTerminal()"));
     }
+
+    @Test
+    public void controllerNamespacesNodeIdsByAdapterIdentity() throws Exception {
+        String controller = Files.readString(Path.of(
+                "src/main/java/com/hellovoid/liquidui/glass/systemui/SystemUiGlassHostController.java"));
+        assertTrue(controller.contains(
+                "+ \":\" + adapterId + \":\" + (++nextNodeSequence)"));
+    }
 }
