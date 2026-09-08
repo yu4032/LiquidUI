@@ -2,7 +2,6 @@ package com.hellovoid.liquidui.glass.notification;
 
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewTreeObserver;
 
 import com.hellovoid.liquidui.Api101Bridge;
 import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
@@ -27,12 +26,6 @@ import java.util.WeakHashMap;
  * permission for LiquidUI's own Window-scoped PassBlur consumer. Producer lifetime is owned by
  * this attached Shade Window and demand is still controlled by WindowGlassSession's active adapter
  * bindings.</p>
- *
- * <p>HyperOS does not enable its combined root blur until the vendor combined ratio becomes
- * positive. LiquidUI bounded glass can become drawable one frame earlier. A single Window-level
- * pre-draw observer therefore watches only the merged scene's empty/non-empty transition and
- * prewarms the already-verified native root backdrop once on demand. It does not animate the blur
- * radius or poll every node; HyperOS remains responsible for the final close transition.</p>
  */
 final class ShadeWindowGlassAuthority implements AutoCloseable {
     private static final String TAG = "[ShadeWindowGlass]";
@@ -68,10 +61,7 @@ final class ShadeWindowGlassAuthority implements AutoCloseable {
 
     private final WeakReference<View> shadeWindowRef;
     private final WindowGlassSession session;
-    private final ShadeRootBlurLatchState rootBlurLatchState = new ShadeRootBlurLatchState();
     private final View.OnAttachStateChangeListener attachListener;
-    private final ViewTreeObserver.OnPreDrawListener preDrawListener;
-    private boolean lastGlassDemand;
     private boolean closed;
 
     private ShadeWindowGlassAuthority(
@@ -93,36 +83,6 @@ final class ShadeWindowGlassAuthority implements AutoCloseable {
             throw new IllegalStateException("NotificationShade Window renderer unavailable");
         }
 
-        // Seed the root latch from the native Window state, then react only to merged-scene demand
-        // transitions. This avoids waiting for HyperOS's combined ratio to cross zero while also
-        // avoiding per-node/per-frame blur writes.
-        boolean nativeRootBlur = rootPassBlurEnabled(root);
-        rootBlurLatchState.observeVendorRatio(nativeRootBlur ? 1f : 0f);
-        lastGlassDemand = hasGlassDemand();
-        rootBlurLatchState.observeGlassDemand(lastGlassDemand);
-        if (lastGlassDemand && rootBlurLatchState.effectiveActive() && !nativeRootBlur) {
-            prewarmRootBackdrop(root);
-        }
-
-        this.preDrawListener = () -> {
-            if (closed) return true;
-            boolean demand = hasGlassDemand();
-            if (demand == lastGlassDemand) return true;
-            lastGlassDemand = demand;
-            rootBlurLatchState.observeGlassDemand(demand);
-
-            // Re-sample only on demand edges. If HyperOS already owns the root blur, do nothing.
-            // When the scene becomes empty we deliberately do not force-disable the root backdrop;
-            // the vendor combined collector remains the close authority for Shade lifecycle.
-            boolean vendorEnabled = rootPassBlurEnabled(root);
-            rootBlurLatchState.observeVendorRatio(vendorEnabled ? 1f : 0f);
-            if (demand && rootBlurLatchState.effectiveActive() && !vendorEnabled) {
-                prewarmRootBackdrop(root);
-            }
-            return true;
-        };
-        root.getViewTreeObserver().addOnPreDrawListener(preDrawListener);
-
         this.attachListener = new View.OnAttachStateChangeListener() {
             @Override public void onViewAttachedToWindow(View v) {}
             @Override public void onViewDetachedFromWindow(View v) { close(); }
@@ -132,9 +92,7 @@ final class ShadeWindowGlassAuthority implements AutoCloseable {
                 + " index=" + insertionIndex
                 + " producerGate=shade-window-owned"
                 + " nativeNotifPassBlur=" + authorityState.isNotificationEnabled()
-                + " nativeCtrlPassBlur=" + authorityState.isControlCenterEnabled()
-                + " nativeRootPassBlur=" + nativeRootBlur
-                + " initialGlassDemand=" + lastGlassDemand);
+                + " nativeCtrlPassBlur=" + authorityState.isControlCenterEnabled());
     }
 
     @Override
@@ -144,50 +102,7 @@ final class ShadeWindowGlassAuthority implements AutoCloseable {
         View shadeWindow = shadeWindowRef.get();
         if (shadeWindow != null) {
             try { shadeWindow.removeOnAttachStateChangeListener(attachListener); } catch (Throwable ignored) {}
-            try {
-                ViewTreeObserver observer = shadeWindow.getViewTreeObserver();
-                if (observer.isAlive()) observer.removeOnPreDrawListener(preDrawListener);
-            } catch (Throwable ignored) {}
             synchronized (ACTIVE) { ACTIVE.remove(shadeWindow, this); }
-        }
-    }
-
-    private boolean hasGlassDemand() {
-        return !session.sceneState().latest().nodes().isEmpty();
-    }
-
-    private static boolean rootPassBlurEnabled(View root) {
-        try {
-            Method getPassWindowBlurEnabled = View.class.getMethod("getPassWindowBlurEnabled");
-            return booleanValue(getPassWindowBlurEnabled.invoke(root));
-        } catch (Throwable error) {
-            throw new IllegalStateException("systemui-001 root PassBlur state unavailable", error);
-        }
-    }
-
-    private static void prewarmRootBackdrop(View root) {
-        try {
-            int radiusId = root.getResources().getIdentifier(
-                    "shade_blur_max_radius", "dimen", root.getContext().getPackageName());
-            if (radiusId == 0) {
-                throw new IllegalStateException("shade_blur_max_radius unavailable");
-            }
-            int maxRadius = root.getResources().getDimensionPixelSize(radiusId);
-
-            Method setMode = View.class.getMethod("setMiBackgroundBlurMode", int.class);
-            Method setPassBlur = View.class.getMethod("setPassWindowBlurEnabled", boolean.class);
-            Method setRadius = View.class.getMethod("setMiBackgroundBlurRadius", int.class);
-            Method setScale = View.class.getMethod("setMiBackgroundBlurScaleRatio", float.class);
-
-            // Match HyperOS's full-strength combined BlurProvider state. This executes once on the
-            // false->true glass-demand edge, not on every drag frame.
-            setMode.invoke(root, 1);
-            setPassBlur.invoke(root, true);
-            setRadius.invoke(root, maxRadius);
-            setScale.invoke(root, 0.075f);
-            log("prewarmed root backdrop demand=true radius=" + maxRadius);
-        } catch (Throwable error) {
-            throw new IllegalStateException("systemui-001 root blur prewarm failed", error);
         }
     }
 
