@@ -12,6 +12,7 @@ import com.hellovoid.liquidui.diagnostics.LiquidUiLog;
 import com.hellovoid.liquidui.glass.controlcenter.ControlCenterGlassHook;
 import com.hellovoid.liquidui.glass.core.SystemUiGlassCore;
 import com.hellovoid.liquidui.glass.core.WindowGlassSession;
+import com.hellovoid.liquidui.glass.keyguard.KeyguardGlassHook;
 import com.hellovoid.liquidui.glass.media.MediaGlassHook;
 import com.hellovoid.liquidui.glass.media.MediaOutputDialogGlassHook;
 import com.hellovoid.liquidui.glass.notification.NotificationSharedGlassHook;
@@ -105,6 +106,9 @@ public final class ModuleMain extends XposedModule {
                             processGlassCore,
                             config.notificationGlassEnabled()),
                     new ControlCenterGlassHook(
+                            new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
+                            processGlassCore),
+                    new KeyguardGlassHook(
                             new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
                             processGlassCore),
                     new MediaGlassHook(
