@@ -9,6 +9,7 @@ import com.hellovoid.liquidui.glass.core.SystemUiGlassCore;
 import com.hellovoid.liquidui.glass.core.WindowGlassSession;
 
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Method;
 import java.util.WeakHashMap;
 
 /**
@@ -26,6 +27,8 @@ final class ShadeWindowGlassAuthority implements AutoCloseable {
             "com.android.systemui.shade.NotificationShadeWindowView";
     private static final String SHADE_BACKGROUND =
             "com.miui.systemui.shade.ShadeBackgroundView";
+    private static final String NOTIFICATION_PANEL =
+            "com.android.systemui.shade.NotificationPanelView";
     private static final String SHARED_NOTIFICATION_CONTAINER =
             "com.android.systemui.statusbar.notification.stack.ui.view.SharedNotificationContainer";
     private static final String CONTROL_CENTER_CONTAINER =
@@ -64,8 +67,13 @@ final class ShadeWindowGlassAuthority implements AutoCloseable {
         verifyExactShadeHierarchy(root);
         this.shadeWindowRef = new WeakReference<>(root);
         this.authorityState = authorityState;
-        this.session = glassCore.sessionFor(root);
 
+        // HyperOS updates setPassWindowBlurEnabled only when BlurProvider.passBlur changes. The
+        // Window renderer may be installed after that edge has already happened, so bootstrap from
+        // the two page roots' current vendor state before deciding whether the producer may bind.
+        observeCurrentPassBlurAuthority(root, authorityState);
+
+        this.session = glassCore.sessionFor(root);
         int insertionIndex = rendererInsertionIndex(root);
         View sceneHost = session.attachRenderer(
                 root, root, insertionIndex, authorityState.isEnabled());
@@ -103,18 +111,61 @@ final class ShadeWindowGlassAuthority implements AutoCloseable {
         }
     }
 
+    private static void observeCurrentPassBlurAuthority(
+            ViewGroup root, NotificationPassBlurAuthorityState authorityState) {
+        View notificationPanel = directChild(root, NOTIFICATION_PANEL);
+        View controlCenter = directChild(root, CONTROL_CENTER_CONTAINER);
+        if (notificationPanel == null || controlCenter == null) {
+            throw new IllegalStateException(
+                    "systemui-001 PassBlur roots unavailable notificationPanel="
+                            + (notificationPanel != null)
+                            + " controlCenter=" + (controlCenter != null));
+        }
+        try {
+            Method getPassWindowBlurEnabled =
+                    View.class.getMethod("getPassWindowBlurEnabled");
+            boolean notificationEnabled = booleanValue(
+                    getPassWindowBlurEnabled.invoke(notificationPanel));
+            boolean controlCenterEnabled = booleanValue(
+                    getPassWindowBlurEnabled.invoke(controlCenter));
+            authorityState.observeNotification(notificationEnabled);
+            authorityState.observeControlCenter(controlCenterEnabled);
+            log("initial authority notif=" + notificationEnabled
+                    + " controlCenter=" + controlCenterEnabled);
+        } catch (Throwable error) {
+            throw new IllegalStateException(
+                    "systemui-001 current PassBlur authority unavailable", error);
+        }
+    }
+
+    private static boolean booleanValue(Object value) {
+        if (value instanceof Boolean enabled) return enabled;
+        throw new IllegalStateException("PassBlur getter returned " + value);
+    }
+
+    private static View directChild(ViewGroup root, String className) {
+        for (int i = 0; i < root.getChildCount(); i++) {
+            View child = root.getChildAt(i);
+            if (className.equals(child.getClass().getName())) return child;
+        }
+        return null;
+    }
+
     private static void verifyExactShadeHierarchy(ViewGroup root) {
+        boolean hasNotificationPanel = false;
         boolean hasNotifications = false;
         boolean hasControlCenter = false;
         for (int i = 0; i < root.getChildCount(); i++) {
             View child = root.getChildAt(i);
             String name = child.getClass().getName();
+            if (NOTIFICATION_PANEL.equals(name)) hasNotificationPanel = true;
             if (SHARED_NOTIFICATION_CONTAINER.equals(name)) hasNotifications = true;
             if (CONTROL_CENTER_CONTAINER.equals(name)) hasControlCenter = true;
         }
-        if (!hasNotifications || !hasControlCenter) {
+        if (!hasNotificationPanel || !hasNotifications || !hasControlCenter) {
             throw new IllegalStateException(
-                    "systemui-001 Shade hierarchy mismatch notifications=" + hasNotifications
+                    "systemui-001 Shade hierarchy mismatch notificationPanel=" + hasNotificationPanel
+                            + " notifications=" + hasNotifications
                             + " controlCenter=" + hasControlCenter);
         }
     }
