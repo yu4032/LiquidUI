@@ -16,6 +16,7 @@ import com.hellovoid.liquidui.glass.media.MediaGlassHook;
 import com.hellovoid.liquidui.glass.media.MediaOutputDialogGlassHook;
 import com.hellovoid.liquidui.glass.notification.NotificationSharedGlassHook;
 import com.hellovoid.liquidui.glass.plugin.MiuiControlCenterPluginGlassSession;
+import com.hellovoid.liquidui.glass.plugin.MiuiSecondaryPanelPluginGlassSession;
 import com.hellovoid.liquidui.glass.plugin.MiuiSystemUiPluginGlassHook;
 import com.hellovoid.liquidui.glass.plugin.MiuiVolumePluginGlassSession;
 import com.hellovoid.liquidui.hook.HookRegistryReport;
@@ -126,17 +127,29 @@ public final class ModuleMain extends XposedModule {
                                                 processGlassCore,
                                                 pluginAfter);
                                 try {
-                                    MiuiVolumePluginGlassSession volume =
-                                            MiuiVolumePluginGlassSession.install(
+                                    MiuiSecondaryPanelPluginGlassSession secondaryPanels =
+                                            MiuiSecondaryPanelPluginGlassSession.install(
                                                     pluginClassLoader,
                                                     pluginContext,
                                                     processGlassCore,
-                                                    pluginBefore,
                                                     pluginAfter);
-                                    return () -> {
-                                        volume.close();
-                                        controlCenter.close();
-                                    };
+                                    try {
+                                        MiuiVolumePluginGlassSession volume =
+                                                MiuiVolumePluginGlassSession.install(
+                                                        pluginClassLoader,
+                                                        pluginContext,
+                                                        processGlassCore,
+                                                        pluginBefore,
+                                                        pluginAfter);
+                                        return () -> {
+                                            volume.close();
+                                            secondaryPanels.close();
+                                            controlCenter.close();
+                                        };
+                                    } catch (Throwable error) {
+                                        secondaryPanels.close();
+                                        throw error;
+                                    }
                                 } catch (Throwable error) {
                                     controlCenter.close();
                                     throw error;
