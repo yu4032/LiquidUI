@@ -26,6 +26,7 @@ final class NotificationGlassRuntime {
     private final WeakHashMap<Object, NotificationGlassAdapter> rowOwners = new WeakHashMap<>();
     private final WeakHashMap<Object, List<WeakReference<Object>>> pendingWrappers = new WeakHashMap<>();
     private final WeakHashMap<View, Boolean> nativeAnimationRunning = new WeakHashMap<>();
+    private long nativeCommitCount;
 
     NotificationGlassRuntime(
             SystemUiGlassCore glassCore,
@@ -45,6 +46,11 @@ final class NotificationGlassRuntime {
     /** Called after HyperOS NSSL.applyCurrentState$1() has committed row ViewState. */
     void onNativeStateCommitted(View stack) {
         if (stack == null) return;
+        long count = ++nativeCommitCount;
+        if (count <= 5 || count % 120 == 0) {
+            log("native commit count=" + count
+                    + " stack=" + Integer.toHexString(System.identityHashCode(stack)));
+        }
         NotificationGlassAdapter adapter = adapters.get(stack);
         if (adapter != null && !adapter.isShutdown()) {
             adapter.onNativeStateCommitted();
