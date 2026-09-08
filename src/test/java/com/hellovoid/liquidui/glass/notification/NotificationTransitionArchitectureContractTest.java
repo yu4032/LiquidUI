@@ -37,6 +37,20 @@ public class NotificationTransitionArchitectureContractTest {
     }
 
     @Test
+    public void liquidUiSuppressedBackgroundAlphaCannotRevokeItsOwnGlassNode() throws Exception {
+        String collector = source("src/main/java/com/hellovoid/liquidui/glass/notification/NotificationGlassNodeCollector.java");
+        String material = source("src/main/java/com/hellovoid/liquidui/glass/notification/LegacyNotificationVendorMaterialController.java");
+
+        // Shared presentation intentionally hides only the native material target with alpha=0.
+        assertTrue(material.contains("background.setAlpha(0f)"));
+
+        // Effective visibility must therefore start at the row/page hierarchy, not at the
+        // background View that LiquidUI itself suppresses after authorization.
+        assertTrue(collector.contains("effectiveAncestorAlpha(row)"));
+        assertFalse(collector.contains("effectiveAncestorAlpha(background)"));
+    }
+
+    @Test
     public void shadeWindowAuthorityDoesNotPrewarmBlurOnOpeningCriticalFrame() throws Exception {
         String authority = source("src/main/java/com/hellovoid/liquidui/glass/notification/ShadeWindowGlassAuthority.java");
 
