@@ -6,7 +6,7 @@ import java.lang.reflect.Method;
 
 import static org.junit.Assert.*;
 
-/** Contract for restoring only the Window-level Shade backdrop while page-local backdrops stay clear. */
+/** Contract for replacing dynamic HyperOS root blur with LiquidUI's cached shared backdrop. */
 public class ShadeRootBackdropPolicyContractTest {
     private static Class<?> policyClass() throws Exception {
         Class<?> value = null;
@@ -19,7 +19,7 @@ public class ShadeRootBackdropPolicyContractTest {
     }
 
     @Test
-    public void rootBackdropPreservesHyperOsRequestedMaterial() throws Exception {
+    public void rootDynamicBlurIsNeutralizedForCachedBackdropReplacement() throws Exception {
         Class<?> type = policyClass();
         Method ratio = type.getDeclaredMethod("rootBlurRatio", float.class);
         Method radius = type.getDeclaredMethod("rootWindowBlurRadius", int.class);
@@ -28,9 +28,9 @@ public class ShadeRootBackdropPolicyContractTest {
         radius.setAccessible(true);
         enabled.setAccessible(true);
 
-        assertEquals(Float.valueOf(0.82f), ratio.invoke(null, 0.82f));
-        assertEquals(96L, ((Integer) radius.invoke(null, 96)).longValue());
-        assertEquals(Boolean.TRUE, enabled.invoke(null, true));
+        assertEquals(Float.valueOf(0f), ratio.invoke(null, 0.82f));
+        assertEquals(0L, ((Integer) radius.invoke(null, 96)).longValue());
+        assertEquals(Boolean.FALSE, enabled.invoke(null, true));
         assertEquals(Boolean.FALSE, enabled.invoke(null, false));
     }
 
