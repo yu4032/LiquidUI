@@ -57,6 +57,8 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
             "com.android.systemui.shade.NotificationShadeWindowView";
     private static final String NOTIFICATION_PANEL =
             "com.android.systemui.shade.NotificationPanelView";
+    private static final String NOTIFICATION_PANEL_CONTROLLER =
+            "com.android.systemui.shade.NotificationPanelViewController";
     private static final String SHARED_NOTIFICATION_CONTAINER =
             "com.android.systemui.statusbar.notification.stack.ui.view.SharedNotificationContainer";
     private static final String CONTROL_CENTER_CONTAINER =
@@ -101,6 +103,7 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
         final Method setRoundRect;
         final Method panelPassBlur;
         final Method shadeWindowAttached;
+        final Method updateExpandedHeight;
         final Method blurProviderSetRatio;
         final Method blendBackgroundSetEnabled;
         final Method blurUtilsApplyBlur;
@@ -108,6 +111,7 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
         final Method setMiBackgroundBlurMode;
         final Field injectorViewField;
         final Field backgroundNormalField;
+        final Field expandedFractionField;
         final Field blurProviderView;
         final Field blendBackgroundView;
         final Class<?> shadeWindowClass;
@@ -137,6 +141,8 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
             Class<?> blendBackgroundClass = TargetClassResolver.require(classLoader, SHADE_BLEND_BACKGROUND);
             shadeWindowClass = TargetClassResolver.require(classLoader, SHADE_WINDOW);
             notificationPanelClass = TargetClassResolver.require(classLoader, NOTIFICATION_PANEL);
+            Class<?> notificationPanelControllerClass =
+                    TargetClassResolver.require(classLoader, NOTIFICATION_PANEL_CONTROLLER);
             sharedNotificationContainerClass =
                     TargetClassResolver.require(classLoader, SHARED_NOTIFICATION_CONTAINER);
             controlCenterContainerClass = TargetClassResolver.require(classLoader, CONTROL_CENTER_CONTAINER);
@@ -146,6 +152,10 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
             updateBackground = accessible(injectorClass.getDeclaredMethod("updateBackground$1"));
             rowDetached = accessible(rowClass.getDeclaredMethod("onDetachedFromWindow"));
             shadeWindowAttached = accessible(shadeWindowClass.getDeclaredMethod("onAttachedToWindow"));
+            updateExpandedHeight = accessible(
+                    notificationPanelControllerClass.getDeclaredMethod("updateExpandedHeight", float.class));
+            expandedFractionField = accessible(
+                    notificationPanelControllerClass.getDeclaredField("mExpandedFraction"));
             injectorViewField = accessible(injectorClass.getField("view"));
             backgroundNormalField = accessible(rowClass.getField("mBackgroundNormal"));
 
@@ -243,8 +253,24 @@ public final class NotificationSharedGlassHook implements SystemUiHook {
                         }
                     })::unhook);
 
+            // HyperOS writes mExpandedFraction/AmbientState before calling updateExpandedHeight().
+            // Use that exact post-update callback as the notification geometry clock instead of
+            // scanning every display pre-draw frame.
+            rollbacks.add(afterBackend.intercept(
+                    updateExpandedHeight,
+                    AfterMethodHookBackend.PRIORITY_HIGHEST,
+                    (thisObject, args) -> {
+                        try {
+                            if (thisObject == null) return;
+                            runtime.onPanelExpansion(expandedFractionField.getFloat(thisObject));
+                        } catch (Throwable error) {
+                            android.util.Log.e("LiquidUI",
+                                    "[LUI][NotifGlass][SharedHook] panel expansion sync failed", error);
+                        }
+                    })::unhook);
+
             // Exact final material authority. Keep native 2dp fallback alive, then register the row
-            // with the Window-shared adapter. No standalone GpuStream probe is instantiated.
+            // with the Window-shared adapter. No standalone PassBlur stream probe is instantiated.
             rollbacks.add(afterBackend.intercept(
                     updateBackground,
                     AfterMethodHookBackend.PRIORITY_HIGHEST,
