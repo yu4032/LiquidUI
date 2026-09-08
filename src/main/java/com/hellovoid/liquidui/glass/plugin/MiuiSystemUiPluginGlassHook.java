@@ -32,10 +32,26 @@ public final class MiuiSystemUiPluginGlassHook implements SystemUiHook {
         AutoCloseable install(ClassLoader pluginClassLoader, Context pluginContext) throws Throwable;
     }
 
+    private static final class SharedPluginSession {
+        final AutoCloseable session;
+        final IdentityHashMap<Object, Boolean> owners = new IdentityHashMap<>();
+
+        SharedPluginSession(AutoCloseable session) {
+            this.session = Objects.requireNonNull(session, "session");
+        }
+    }
+
     private final BeforeMethodHookBackend beforeBackend;
     private final AfterMethodHookBackend afterBackend;
     private final PluginSessionInstaller sessionInstaller;
-    private final IdentityHashMap<Object, AutoCloseable> pluginSessions = new IdentityHashMap<>();
+
+    // Xiaomi may create multiple PluginInstance wrappers for the same loaded plugin ClassLoader
+    // (for example, different plugin listeners/interfaces). The glass hooks are ClassLoader-wide,
+    // so installing once per wrapper duplicates every component adapter. Keep wrapper ownership
+    // separately and share exactly one glass session for each plugin ClassLoader.
+    private final IdentityHashMap<Object, ClassLoader> pluginOwners = new IdentityHashMap<>();
+    private final IdentityHashMap<ClassLoader, SharedPluginSession> sharedPluginSessions =
+            new IdentityHashMap<>();
 
     public MiuiSystemUiPluginGlassHook(
             BeforeMethodHookBackend beforeBackend,
@@ -107,16 +123,7 @@ public final class MiuiSystemUiPluginGlassHook implements SystemUiHook {
                                 throw new IllegalStateException("plugin ClassLoader is null");
                             }
 
-                            closePluginSession(thisObject);
-                            AutoCloseable session = sessionInstaller.install(
-                                    pluginClassLoader, pluginContext);
-                            if (session == null) {
-                                throw new IllegalStateException("plugin session installer returned null");
-                            }
-                            pluginSessions.put(thisObject, session);
-                            android.util.Log.i("LiquidUI",
-                                    "[LUI][PluginGlass] verified plugin session installed version="
-                                            + PLUGIN_VERSION_NAME);
+                            acquirePluginSession(thisObject, pluginClassLoader, pluginContext);
                         } catch (Throwable error) {
                             closePluginSession(thisObject);
                             android.util.Log.e("LiquidUI",
@@ -153,6 +160,92 @@ public final class MiuiSystemUiPluginGlassHook implements SystemUiHook {
         }
     }
 
+    private synchronized void acquirePluginSession(
+            Object pluginInstance,
+            ClassLoader pluginClassLoader,
+            Context pluginContext) throws Throwable {
+        ClassLoader currentLoader = pluginOwners.get(pluginInstance);
+        if (currentLoader == pluginClassLoader) {
+            SharedPluginSession current = sharedPluginSessions.get(pluginClassLoader);
+            if (current != null && current.owners.containsKey(pluginInstance)) {
+                android.util.Log.i("LiquidUI",
+                        "[LUI][PluginGlass] shared plugin session already owned owner="
+                                + identity(pluginInstance)
+                                + " loader=" + identity(pluginClassLoader)
+                                + " owners=" + current.owners.size());
+                return;
+            }
+        }
+
+        releasePluginOwner(pluginInstance);
+
+        SharedPluginSession shared = sharedPluginSessions.get(pluginClassLoader);
+        boolean installed = false;
+        if (shared == null) {
+            AutoCloseable session = sessionInstaller.install(pluginClassLoader, pluginContext);
+            if (session == null) {
+                throw new IllegalStateException("plugin session installer returned null");
+            }
+            shared = new SharedPluginSession(session);
+            sharedPluginSessions.put(pluginClassLoader, shared);
+            installed = true;
+        }
+
+        shared.owners.put(pluginInstance, Boolean.TRUE);
+        pluginOwners.put(pluginInstance, pluginClassLoader);
+        android.util.Log.i("LiquidUI",
+                "[LUI][PluginGlass] shared plugin session "
+                        + (installed ? "installed" : "reused")
+                        + " version=" + PLUGIN_VERSION_NAME
+                        + " owner=" + identity(pluginInstance)
+                        + " loader=" + identity(pluginClassLoader)
+                        + " owners=" + shared.owners.size());
+    }
+
+    private synchronized void closePluginSession(Object pluginInstance) {
+        releasePluginOwner(pluginInstance);
+    }
+
+    private void releasePluginOwner(Object pluginInstance) {
+        ClassLoader pluginClassLoader = pluginOwners.remove(pluginInstance);
+        if (pluginClassLoader == null) return;
+
+        SharedPluginSession shared = sharedPluginSessions.get(pluginClassLoader);
+        if (shared == null) return;
+        shared.owners.remove(pluginInstance);
+        if (!shared.owners.isEmpty()) {
+            android.util.Log.i("LiquidUI",
+                    "[LUI][PluginGlass] shared plugin owner released owner="
+                            + identity(pluginInstance)
+                            + " loader=" + identity(pluginClassLoader)
+                            + " owners=" + shared.owners.size());
+            return;
+        }
+
+        sharedPluginSessions.remove(pluginClassLoader);
+        try {
+            shared.session.close();
+        } catch (Throwable error) {
+            android.util.Log.e("LiquidUI", "[LUI][PluginGlass] session close failed", error);
+        }
+        android.util.Log.i("LiquidUI",
+                "[LUI][PluginGlass] shared plugin session closed loader="
+                        + identity(pluginClassLoader));
+    }
+
+    private synchronized void closeAllPluginSessions() {
+        pluginOwners.clear();
+        for (Map.Entry<ClassLoader, SharedPluginSession> entry :
+                new ArrayList<>(sharedPluginSessions.entrySet())) {
+            try {
+                entry.getValue().session.close();
+            } catch (Throwable error) {
+                android.util.Log.e("LiquidUI", "[LUI][PluginGlass] session close failed", error);
+            }
+        }
+        sharedPluginSessions.clear();
+    }
+
     private static boolean isExactPlugin(Context pluginContext) throws Exception {
         if (!PLUGIN_PACKAGE.equals(pluginContext.getPackageName())) return false;
         PackageInfo packageInfo = pluginContext.getPackageManager()
@@ -161,22 +254,8 @@ public final class MiuiSystemUiPluginGlassHook implements SystemUiHook {
                 && PLUGIN_VERSION_NAME.equals(packageInfo.versionName);
     }
 
-    private void closePluginSession(Object pluginInstance) {
-        AutoCloseable session = pluginSessions.remove(pluginInstance);
-        if (session == null) return;
-        try {
-            session.close();
-        } catch (Throwable error) {
-            android.util.Log.e("LiquidUI", "[LUI][PluginGlass] session close failed", error);
-        }
-    }
-
-    private void closeAllPluginSessions() {
-        for (Map.Entry<Object, AutoCloseable> entry :
-                new ArrayList<>(pluginSessions.entrySet())) {
-            closePluginSession(entry.getKey());
-        }
-        pluginSessions.clear();
+    private static String identity(Object value) {
+        return "0x" + Integer.toHexString(System.identityHashCode(value));
     }
 
     private static <T extends java.lang.reflect.AccessibleObject> T accessible(T value) {
