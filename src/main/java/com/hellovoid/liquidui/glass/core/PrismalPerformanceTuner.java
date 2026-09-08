@@ -67,22 +67,37 @@ final class PrismalPerformanceTuner {
 
     private PrismalPerformanceTuner() {}
 
+    static synchronized boolean modeMatches(PrismalRenderer renderer, PrismalParams params) {
+        Objects.requireNonNull(renderer, "renderer");
+        Objects.requireNonNull(params, "params");
+        return currentMode(renderer) == desiredMode(params);
+    }
+
     /** Rebuild the renderer's one derived blur texture for the exact next node profile. */
     static synchronized void prepareNodeBackdrop(PrismalRenderer renderer, PrismalParams params) {
         Objects.requireNonNull(renderer, "renderer");
         Objects.requireNonNull(params, "params");
-        Mode desired = params.blurRadiusPx <= 0f ? Mode.FAST_COPY : Mode.GAUSSIAN;
+        Mode desired = desiredMode(params);
+        Mode current = currentMode(renderer);
+        if (current != desired) {
+            replaceBlurPrograms(renderer, desired);
+            MODES.put(renderer, desired);
+        }
+        renderer.renderBlur(params);
+    }
+
+    private static Mode desiredMode(PrismalParams params) {
+        return params.blurRadiusPx <= 0f ? Mode.FAST_COPY : Mode.GAUSSIAN;
+    }
+
+    private static Mode currentMode(PrismalRenderer renderer) {
         Mode current = MODES.get(renderer);
         if (current == null) {
             // PrismalRenderer.ensurePrograms() creates the official Gaussian programs first.
             current = Mode.GAUSSIAN;
             MODES.put(renderer, current);
         }
-        if (current != desired) {
-            replaceBlurPrograms(renderer, desired);
-            MODES.put(renderer, desired);
-        }
-        renderer.renderBlur(params);
+        return current;
     }
 
     private static void replaceBlurPrograms(PrismalRenderer renderer, Mode mode) {
