@@ -23,6 +23,9 @@ public class LockScreenClockGlassArchitectureTest {
         assertTrue(source.contains("SystemUiGlassDomain.KEYGUARD"));
         assertTrue(source.contains("KeepNativeClockMaterial"));
         assertTrue(source.contains("never hide clock glyphs"));
+        assertTrue(!source.contains("setMiGlass("));
+        assertTrue(!source.contains("setMiGlassBlurRadius("));
+        assertTrue(!source.contains("setMiViewMaterialType("));
     }
 
     @Test
