@@ -22,12 +22,13 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Narrow compatibility bridge for HyperOS lockscreen clocks.
+ * OS3 compatibility bridge for HyperOS lockscreen clocks.
  *
- * <p>The vendor ClockBean is forced to request glass (effect=5), while LiquidUI owns the actual
- * bounded glass presentation for the clock View in the current SystemUI Window. This first-stage
- * bridge intentionally does not suppress native clock text: presentation remains fail-closed until
- * glyph-mask authority is implemented.</p>
+ * <p>OS3 does not provide the vendor glass renderer. Effect 5 is therefore treated only as a
+ * semantic intent marker: LiquidUI owns the actual bounded glass presentation in the current
+ * SystemUI Window and never delegates rendering to setMiGlass/setMiGlassBlurRadius or other
+ * OS4 vendor material APIs. This first-stage bridge intentionally keeps native clock text visible
+ * until glyph-mask authority is implemented.</p>
  */
 public final class LockScreenClockGlassHook implements SystemUiHook {
     private static final String HOOK_ID = "lockscreen-clock-glass";
@@ -129,7 +130,7 @@ public final class LockScreenClockGlassHook implements SystemUiHook {
                     })::unhook);
 
             android.util.Log.i("LiquidUI",
-                    "[LUI][ClockGlass] installed vendor-effect compatibility bridge");
+                    "[LUI][ClockGlass] installed OS3 semantic-effect compatibility bridge");
             return HookInstallResult.installed(HOOK_ID);
         } catch (Throwable error) {
             hosts.close();
