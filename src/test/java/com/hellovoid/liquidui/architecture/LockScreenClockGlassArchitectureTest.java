@@ -18,11 +18,13 @@ public class LockScreenClockGlassArchitectureTest {
         String source = Files.readString(HOOK);
         assertTrue(source.contains("com.miui.clock.MiuiClockController"));
         assertTrue(source.contains("addClockView"));
-        assertTrue(source.contains("setClockEffect"));
-        assertTrue(source.contains("GLASS_EFFECT = 5"));
         assertTrue(source.contains("SystemUiGlassDomain.KEYGUARD"));
-        assertTrue(source.contains("KeepNativeClockMaterial"));
-        assertTrue(source.contains("never hide clock glyphs"));
+        assertTrue(!source.contains("supportGlassEffect"));
+        assertTrue(!source.contains("isGlassEffectEnable"));
+        assertTrue(!source.contains("clockEffect"));
+        assertTrue(source.contains("ClockReplacementMaterial"));
+        assertTrue(source.contains("host.setAlpha(0f)"));
+        assertTrue(source.contains("host.setAlpha(alpha)"));
         assertTrue(!source.contains("setMiGlass("));
         assertTrue(!source.contains("setMiGlassBlurRadius("));
         assertTrue(!source.contains("setMiViewMaterialType("));
