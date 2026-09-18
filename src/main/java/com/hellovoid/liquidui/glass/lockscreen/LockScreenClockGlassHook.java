@@ -12,6 +12,7 @@ import com.hellovoid.liquidui.hook.AfterMethodHookBackend;
 import com.hellovoid.liquidui.hook.BeforeMethodHookBackend;
 import com.hellovoid.liquidui.hook.HookInstallResult;
 import com.hellovoid.liquidui.hook.SystemUiHook;
+import com.hellovoid.liquidui.reflect.TargetClassResolver;
 import com.hellovoid.liquidui.target.SystemUiTargetProfile;
 
 import java.lang.reflect.Field;
@@ -61,8 +62,8 @@ public final class LockScreenClockGlassHook implements SystemUiHook {
         final Field clockViewField;
 
         try {
-            controllerClass = Class.forName(CLOCK_CONTROLLER, false, classLoader);
-            beanClass = Class.forName(CLOCK_BEAN, false, classLoader);
+            controllerClass = TargetClassResolver.require(classLoader, CLOCK_CONTROLLER);
+            beanClass = TargetClassResolver.require(classLoader, CLOCK_BEAN);
             addClockView = accessible(controllerClass.getDeclaredMethod(
                     "addClockView", beanClass, boolean.class));
             setClockEffect = accessible(beanClass.getDeclaredMethod("setClockEffect", int.class));
