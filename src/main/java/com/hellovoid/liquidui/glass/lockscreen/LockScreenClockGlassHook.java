@@ -9,7 +9,6 @@ import com.hellovoid.liquidui.glass.systemui.SystemUiGlassDomain;
 import com.hellovoid.liquidui.glass.systemui.SystemUiGlassHostController;
 import com.hellovoid.liquidui.glass.systemui.SystemUiMaterialHostKind;
 import com.hellovoid.liquidui.hook.AfterMethodHookBackend;
-import com.hellovoid.liquidui.hook.BeforeMethodHookBackend;
 import com.hellovoid.liquidui.hook.HookInstallResult;
 import com.hellovoid.liquidui.hook.SystemUiHook;
 import com.hellovoid.liquidui.reflect.TargetClassResolver;
@@ -22,29 +21,24 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * OS3 compatibility bridge for HyperOS lockscreen clocks.
+ * Forced LiquidUI replacement for HyperOS OS3 lockscreen clocks.
  *
- * <p>OS3 does not provide the vendor glass renderer. Effect 5 is therefore treated only as a
- * semantic intent marker: LiquidUI owns the actual bounded glass presentation in the current
- * SystemUI Window and never delegates rendering to setMiGlass/setMiGlassBlurRadius or other
- * OS4 vendor material APIs. This first-stage bridge intentionally keeps native clock text visible
- * until glyph-mask authority is implemented.</p>
+ * <p>No vendor glass capability, effect value, or OS4 material API participates in this path.
+ * Once MiuiClockController creates a clock View, LiquidUI registers it unconditionally and owns
+ * presentation. Native content is suppressed only after LiquidUI receives presentation authority,
+ * and is restored immediately when authority is revoked.</p>
  */
 public final class LockScreenClockGlassHook implements SystemUiHook {
     private static final String HOOK_ID = "lockscreen-clock-glass";
     private static final String CLOCK_CONTROLLER = "com.miui.clock.MiuiClockController";
     private static final String CLOCK_BEAN = "com.miui.clock.module.ClockBean";
-    private static final int GLASS_EFFECT = 5;
 
-    private final BeforeMethodHookBackend beforeBackend;
     private final AfterMethodHookBackend afterBackend;
     private final SystemUiGlassCore glassCore;
 
     public LockScreenClockGlassHook(
-            BeforeMethodHookBackend beforeBackend,
             AfterMethodHookBackend afterBackend,
             SystemUiGlassCore glassCore) {
-        this.beforeBackend = Objects.requireNonNull(beforeBackend, "beforeBackend");
         this.afterBackend = Objects.requireNonNull(afterBackend, "afterBackend");
         this.glassCore = Objects.requireNonNull(glassCore, "glassCore");
     }
@@ -59,7 +53,6 @@ public final class LockScreenClockGlassHook implements SystemUiHook {
         final Class<?> controllerClass;
         final Class<?> beanClass;
         final Method addClockView;
-        final Method setClockEffect;
         final Field clockViewField;
 
         try {
@@ -67,7 +60,6 @@ public final class LockScreenClockGlassHook implements SystemUiHook {
             beanClass = TargetClassResolver.require(classLoader, CLOCK_BEAN);
             addClockView = accessible(controllerClass.getDeclaredMethod(
                     "addClockView", beanClass, boolean.class));
-            setClockEffect = accessible(beanClass.getDeclaredMethod("setClockEffect", int.class));
             clockViewField = findField(controllerClass, "mClockView");
         } catch (ClassNotFoundException | NoSuchMethodException | NoSuchFieldException error) {
             return HookInstallResult.unsupported(HOOK_ID,
@@ -79,25 +71,10 @@ public final class LockScreenClockGlassHook implements SystemUiHook {
 
         SystemUiGlassHostController hosts = new SystemUiGlassHostController(
                 glassCore, SystemUiGlassDomain.KEYGUARD, "clock");
-        NativeMaterialController<View> keepNativeText = new KeepNativeClockMaterial();
+        NativeMaterialController<View> replacementMaterial = new ClockReplacementMaterial();
         List<Runnable> rollbacks = new ArrayList<>();
 
         try {
-            rollbacks.add(beforeBackend.intercept(
-                    addClockView,
-                    BeforeMethodHookBackend.PRIORITY_HIGHEST,
-                    (thisObject, args) -> {
-                        if (args.length == 0 || args[0] == null || !beanClass.isInstance(args[0])) {
-                            return;
-                        }
-                        try {
-                            setClockEffect.invoke(args[0], GLASS_EFFECT);
-                        } catch (Throwable error) {
-                            android.util.Log.e("LiquidUI",
-                                    "[LUI][ClockGlass] failed to request vendor glass effect", error);
-                        }
-                    })::unhook);
-
             rollbacks.add(afterBackend.intercept(
                     addClockView,
                     AfterMethodHookBackend.PRIORITY_HIGHEST,
@@ -112,7 +89,7 @@ public final class LockScreenClockGlassHook implements SystemUiHook {
                                             clockView,
                                             SystemUiMaterialHostKind.KEYGUARD_PANEL,
                                             GlassHostGeometry.rounded(0f, 1f, 40),
-                                            keepNativeText);
+                                            replacementMaterial);
                                 } catch (Throwable error) {
                                     android.util.Log.e("LiquidUI",
                                             "[LUI][ClockGlass] host registration failed", error);
@@ -130,7 +107,7 @@ public final class LockScreenClockGlassHook implements SystemUiHook {
                     })::unhook);
 
             android.util.Log.i("LiquidUI",
-                    "[LUI][ClockGlass] installed OS3 semantic-effect compatibility bridge");
+                    "[LUI][ClockGlass] installed unconditional OS3 clock replacement");
             return HookInstallResult.installed(HOOK_ID);
         } catch (Throwable error) {
             hosts.close();
@@ -162,17 +139,26 @@ public final class LockScreenClockGlassHook implements SystemUiHook {
         return value;
     }
 
-    private static final class KeepNativeClockMaterial implements NativeMaterialController<View> {
+    private static final class ClockReplacementMaterial implements NativeMaterialController<View> {
+        private final java.util.WeakHashMap<View, Float> originalAlpha = new java.util.WeakHashMap<>();
+
         @Override public void suppress(View host, long lifecycleGeneration) {
-            // Stage 1: never hide clock glyphs. LiquidUI glass must prove stable presentation first.
+            if (!originalAlpha.containsKey(host)) originalAlpha.put(host, host.getAlpha());
+            host.setAlpha(0f);
         }
 
         @Override public void restore(View host, long lifecycleGeneration) {
-            // Native clock was never suppressed.
+            Float alpha = originalAlpha.remove(host);
+            if (alpha != null) host.setAlpha(alpha);
         }
 
         @Override public void restoreAll() {
-            // Native clock was never suppressed.
+            for (java.util.Map.Entry<View, Float> entry :
+                    new java.util.ArrayList<>(originalAlpha.entrySet())) {
+                View host = entry.getKey();
+                if (host != null) host.setAlpha(entry.getValue());
+            }
+            originalAlpha.clear();
         }
     }
 }
