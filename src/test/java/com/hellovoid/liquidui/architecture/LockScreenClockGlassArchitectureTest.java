@@ -1,20 +1,20 @@
 package com.hellovoid.liquidui.architecture;
 
-import org.junit.jupiter.api.Test;
+import org.junit.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.Assert.assertTrue;
 
-class LockScreenClockGlassArchitectureTest {
+public class LockScreenClockGlassArchitectureTest {
     private static final Path HOOK = Path.of(
             "src/main/java/com/hellovoid/liquidui/glass/lockscreen/LockScreenClockGlassHook.java");
     private static final Path MODULE = Path.of(
             "src/main/java/com/hellovoid/liquidui/ModuleMain.java");
 
     @Test
-    void clockGlassBridgeStaysNarrowAndFailClosed() throws Exception {
+    public void clockGlassBridgeStaysNarrowAndFailClosed() throws Exception {
         String source = Files.readString(HOOK);
         assertTrue(source.contains("com.miui.clock.MiuiClockController"));
         assertTrue(source.contains("addClockView"));
@@ -26,7 +26,7 @@ class LockScreenClockGlassArchitectureTest {
     }
 
     @Test
-    void moduleRegistersClockGlassHookWithSharedCore() throws Exception {
+    public void moduleRegistersClockGlassHookWithSharedCore() throws Exception {
         String source = Files.readString(MODULE);
         assertTrue(source.contains("LockScreenClockGlassHook"));
         assertTrue(source.contains("processGlassCore"));
