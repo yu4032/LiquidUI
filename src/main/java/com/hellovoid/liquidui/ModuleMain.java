@@ -14,6 +14,7 @@ import com.hellovoid.liquidui.glass.core.SystemUiGlassCore;
 import com.hellovoid.liquidui.glass.core.WindowGlassSession;
 import com.hellovoid.liquidui.glass.media.MediaGlassHook;
 import com.hellovoid.liquidui.glass.media.MediaOutputDialogGlassHook;
+import com.hellovoid.liquidui.glass.lockscreen.LockScreenClockGlassHook;
 import com.hellovoid.liquidui.glass.notification.NotificationSharedGlassHook;
 import com.hellovoid.liquidui.glass.plugin.MiuiControlCenterMediaPluginGlassSession;
 import com.hellovoid.liquidui.glass.plugin.MiuiControlCenterPluginGlassSession;
@@ -111,6 +112,10 @@ public final class ModuleMain extends XposedModule {
                             new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
                             processGlassCore),
                     new MediaOutputDialogGlassHook(
+                            new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
+                            processGlassCore),
+                    new LockScreenClockGlassHook(
+                            new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()),
                             new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
                             processGlassCore),
                     new MiuiSystemUiPluginGlassHook(
