@@ -115,7 +115,6 @@ public final class ModuleMain extends XposedModule {
                             new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
                             processGlassCore),
                     new LockScreenClockGlassHook(
-                            new Api101BeforeMethodHookBackend(config.diagnosticsEnabled()),
                             new Api101AfterMethodHookBackend(config.diagnosticsEnabled()),
                             processGlassCore),
                     new MiuiSystemUiPluginGlassHook(
